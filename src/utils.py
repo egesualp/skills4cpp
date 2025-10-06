@@ -1,3 +1,5 @@
+# elenasenger/karrierewege/src/utils.py (modified)
+
 from datasets import load_dataset
 import pandas as pd
 from tqdm import tqdm
@@ -65,7 +67,7 @@ def subspans(lst):
             yield lst[j:j + i]
 
 
-def load_prepare_karrierewege(minus_last, consider_all_subspans_of_len_at_least_2=False, language='en'):
+def load_prepare_karrierewege(minus_last, consider_all_subspans_of_len_at_least_2=False, language='en', max_rows: int = None):
     """
     Loads and processes the Karrierewege dataset for training.
 
@@ -73,6 +75,7 @@ def load_prepare_karrierewege(minus_last, consider_all_subspans_of_len_at_least_
         minus_last (bool): If True, removes the last experience in subspans.
         consider_all_subspans_of_len_at_least_2 (bool, optional): If True, considers all subspans with at least 2 elements. Defaults to False.
         language (str, optional): Specifies the dataset language variant. Defaults to 'en'.
+        max_rows (int, optional): The maximum number of rows to load from each split. Defaults to None (load all).
 
     Returns:
         tuple: (train_pairs, val_pairs, test_pairs) - Prepared document pairs.
@@ -182,10 +185,11 @@ def load_prepare_karrierewege(minus_last, consider_all_subspans_of_len_at_least_
     
   
     # Load the dataset
+    split_slice = f"[:{max_rows}]" if max_rows is not None else ""
     if language == 'en_free' or language == 'de_free' or language == 'esco_100k' or language == 'en_free_cp' or language == 'de_free_cp':
-        dataset = load_dataset("ElenaSenger/Karrierewege_plus")
+        dataset = load_dataset("ElenaSenger/Karrierewege_plus", split={s: s + split_slice for s in ["train", "validation", "test"]})
     elif language == 'en':
-        dataset = load_dataset("ElenaSenger/Karrierewege")
+        dataset = load_dataset("ElenaSenger/Karrierewege", split={s: s + split_slice for s in ["train", "validation", "test"]})
 
     train_pairs = create_pairs_from_dataset(dataset["train"])
     val_pairs = create_pairs_from_dataset(dataset["validation"])
@@ -195,7 +199,7 @@ def load_prepare_karrierewege(minus_last, consider_all_subspans_of_len_at_least_
     return train_pairs, val_pairs, test_pairs
 
 
-def load_prepare_decorte(minus_last, consider_all_subspans_of_len_at_least_2=False, verbose=False, max_len=16):
+def load_prepare_decorte(minus_last, consider_all_subspans_of_len_at_least_2=False, verbose=False, max_len=16, max_rows: int = None):
     """
     Loads and processes the Decorte dataset for training.
 
@@ -204,6 +208,7 @@ def load_prepare_decorte(minus_last, consider_all_subspans_of_len_at_least_2=Fal
         consider_all_subspans_of_len_at_least_2 (bool, optional): If True, considers all subspans with at least 2 elements. Defaults to False.
         verbose (bool, optional): If True, prints additional information. Defaults to False.
         max_len (int, optional): Maximum length of subspans. Defaults to 16.
+        max_rows (int, optional): The maximum number of rows to load from each split. Defaults to None (load all).
 
     Returns:
         tuple: (train_pairs, val_pairs, test_pairs) - Prepared document pairs.
@@ -211,7 +216,8 @@ def load_prepare_decorte(minus_last, consider_all_subspans_of_len_at_least_2=Fal
 
 
     # Load the dataset
-    dataset = load_dataset("jensjorisdecorte/anonymous-working-histories")
+    split_slice = f"[:{max_rows}]" if max_rows is not None else ""
+    dataset = load_dataset("jensjorisdecorte/anonymous-working-histories", split={s: s + split_slice for s in ["train", "validation", "test"]})
 
     # Apply replacements to all columns in the dataset beginning with ESCO_title
     for i in range(16):
@@ -343,7 +349,7 @@ def load_prepare_decorte(minus_last, consider_all_subspans_of_len_at_least_2=Fal
 
     return train_pairs, val_pairs, test_pairs
 
-def load_prepare_decorte_esco(minus_last, consider_all_subspans_of_len_at_least_2=False, verbose=False, max_len = 16):
+def load_prepare_decorte_esco(minus_last, consider_all_subspans_of_len_at_least_2=False, verbose=False, max_len = 16, max_rows: int = None):
     """
     Loads and processes the Decorte ESCO dataset for training.
 
@@ -352,6 +358,7 @@ def load_prepare_decorte_esco(minus_last, consider_all_subspans_of_len_at_least_
         consider_all_subspans_of_len_at_least_2 (bool, optional): If True, considers all subspans with at least 2 elements. Defaults to False.
         verbose (bool, optional): If True, prints additional information. Defaults to False.
         max_len (int, optional): Maximum length of subspans. Defaults to 16.
+        max_rows (int, optional): The maximum number of rows to load from each split. Defaults to None (load all).
 
     Returns:
         tuple: (train_pairs, val_pairs, test_pairs) - Prepared document pairs.
@@ -359,7 +366,8 @@ def load_prepare_decorte_esco(minus_last, consider_all_subspans_of_len_at_least_
 
 
     # Load the dataset
-    dataset = load_dataset("jensjorisdecorte/anonymous-working-histories")
+    split_slice = f"[:{max_rows}]" if max_rows is not None else ""
+    dataset = load_dataset("jensjorisdecorte/anonymous-working-histories", split={s: s + split_slice for s in ["train", "validation", "test"]})
 
 
     # Apply replacements to all columns in the dataset beginning with ESCO_title
@@ -490,3 +498,65 @@ def load_prepare_decorte_esco(minus_last, consider_all_subspans_of_len_at_least_
     test_pairs = create_pairs_from_dataset(dataset["test"])
 
     return train_pairs, val_pairs, test_pairs
+
+# do i really need this?
+def load_raw_to_esco_pairs(dataset_name, max_rows: int = None):
+    """
+    Loads a dataset and extracts unique pairs of (raw job title, ESCO job title).
+
+    Args:
+        dataset_name (str): The name of the dataset to load.
+                            Supported: 'decorte', 'karrierewege_plus'.
+        max_rows (int, optional): Max rows to load from each split. Defaults to None.
+
+    Returns:
+        tuple: (train_pairs, val_pairs, test_pairs) containing unique (raw, ESCO) title pairs.
+    """
+
+    split_slice = f"[:{max_rows}]" if max_rows is not None else ""
+
+    if dataset_name == 'decorte':
+        dataset = load_dataset("jensjorisdecorte/anonymous-working-histories", split={s: s + split_slice for s in ["train", "validation", "test"]})
+
+        def create_pairs_from_decorte(_dataset):
+            pairs = []
+            for example in tqdm(_dataset):
+                for i in range(example["number_of_experiences"]):
+                    raw_title = example.get(f"title_{i}")
+                    esco_title = example.get(f"ESCO_title_{i}")
+                    if raw_title and esco_title and pd.notna(raw_title) and pd.notna(esco_title):
+                        pairs.append((raw_title.strip(), esco_title.strip()))
+            return list(set(pairs))  # Return unique pairs
+
+        train_pairs = create_pairs_from_decorte(dataset['train'])
+        val_pairs = create_pairs_from_decorte(dataset['validation'])
+        test_pairs = create_pairs_from_decorte(dataset['test'])
+
+        return train_pairs, val_pairs, test_pairs
+
+    elif dataset_name == 'karrierewege_plus':
+        dataset = load_dataset("ElenaSenger/Karrierewege_plus", split={s: s + split_slice for s in ["train", "validation", "test"]})
+
+        def create_pairs_from_kw(_dataset):
+            df = _dataset.to_pandas()
+            # Collect pairs from both 'occ' (occupation) and 'cp' (career profile) raw titles
+            pairs_occ = df[['new_job_title_en_occ', 'preferredLabel_en']].dropna()
+            pairs_cp = df[['new_job_title_en_cp', 'preferredLabel_en']].dropna()
+
+            all_pairs = []
+            for _, row in pairs_occ.iterrows():
+                all_pairs.append((row['new_job_title_en_occ'].strip(), row['preferredLabel_en'].strip()))
+
+            for _, row in pairs_cp.iterrows():
+                all_pairs.append((row['new_job_title_en_cp'].strip(), row['preferredLabel_en'].strip()))
+
+            return list(set(all_pairs))  # Return unique pairs
+
+        train_pairs = create_pairs_from_kw(dataset['train'])
+        val_pairs = create_pairs_from_kw(dataset['validation'])
+        test_pairs = create_pairs_from_kw(dataset['test'])
+
+        return train_pairs, val_pairs, test_pairs
+
+    else:
+        raise ValueError(f"Unsupported dataset_name: {dataset_name}. Supported are 'decorte', 'karrierewege_plus'.")

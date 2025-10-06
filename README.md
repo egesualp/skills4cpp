@@ -103,7 +103,6 @@ pytest tests/ --cov=src --cov-report=html
 │   └── utils.py             # Utility functions
 ├── tests/                   # Test suite
 │   ├── test_data.py         # Data class tests (18 tests)
-│   ├── test_api.py          # API tests
 │   └── test_model.py        # Model tests
 ├── data/                    # Data directory
 ├── models/                  # Trained models

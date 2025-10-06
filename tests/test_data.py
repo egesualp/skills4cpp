@@ -51,7 +51,8 @@ class TestData:
         assert set(data.labels) == set(expected_labels)
         mock_load_decorte.assert_called_once_with(
             consider_all_subspans_of_len_at_least_2=True, 
-            minus_last=False
+            minus_last=False,
+            max_rows=None
         )
 
     @patch('data.load_prepare_decorte_esco')
@@ -64,7 +65,8 @@ class TestData:
         assert data.DATA_TYPE == 'decorte_esco'
         mock_load_decorte_esco.assert_called_once_with(
             consider_all_subspans_of_len_at_least_2=True, 
-            minus_last=False
+            minus_last=False,
+            max_rows=None
         )
 
     @patch('data.load_prepare_karrierewege')
@@ -78,7 +80,8 @@ class TestData:
         mock_load_karrierewege.assert_called_once_with(
             consider_all_subspans_of_len_at_least_2=True, 
             minus_last=False, 
-            language='en'
+            language='en',
+            max_rows=None
         )
 
     @patch('data.load_prepare_karrierewege')
@@ -92,7 +95,8 @@ class TestData:
         mock_load_karrierewege.assert_called_once_with(
             consider_all_subspans_of_len_at_least_2=True, 
             minus_last=False, 
-            language='en_free'
+            language='en_free',
+            max_rows=None
         )
 
     @patch('data.load_prepare_karrierewege')
@@ -106,7 +110,8 @@ class TestData:
         mock_load_karrierewege.assert_called_once_with(
             consider_all_subspans_of_len_at_least_2=True, 
             minus_last=False, 
-            language='esco_100k'
+            language='esco_100k',
+            max_rows=None
         )
 
     @patch('data.load_prepare_karrierewege')
@@ -120,7 +125,8 @@ class TestData:
         mock_load_karrierewege.assert_called_once_with(
             consider_all_subspans_of_len_at_least_2=True, 
             minus_last=False, 
-            language='en_free_cp'
+            language='en_free_cp',
+            max_rows=None
         )
 
     def test_init_with_optional_parameters(self):
@@ -255,10 +261,12 @@ class TestData:
             ("role: Job1 \n description: Desc1", "esco role: Target1 \n description: Target desc1")
         ]
         
-        # This test will fail because the current implementation doesn't handle empty matches
-        # We need to fix the implementation or skip this test
-        with pytest.raises(IndexError):
-            Data._extract_titles(test_pairs)
+        result = Data._extract_titles(test_pairs)
+        expected = [
+            ("", ""),
+            ("Job1 ", "Target1 ")
+        ]
+        assert result == expected
 
     def test_minus_last_with_single_segment(self):
         """Test __minus_last with documents that have only one segment."""

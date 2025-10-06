@@ -1,6 +1,8 @@
 import os
-
+import pandas as pd
 from invoke import Context, task
+
+from src.utils import load_raw_to_esco_pairs
 
 WINDOWS = os.name == "nt"
 PROJECT_NAME = "skills4cpp"
@@ -54,11 +56,6 @@ def docker_build(ctx: Context, progress: str = "plain") -> None:
         echo=True,
         pty=not WINDOWS
     )
-    ctx.run(
-        f"docker build -t api:latest . -f dockerfiles/api.dockerfile --progress={progress}",
-        echo=True,
-        pty=not WINDOWS
-    )
 
 # Documentation commands
 @task(dev_requirements)
@@ -71,3 +68,79 @@ def build_docs(ctx: Context) -> None:
 def serve_docs(ctx: Context) -> None:
     """Serve documentation."""
     ctx.run("mkdocs serve --config-file docs/mkdocs.yaml", echo=True, pty=not WINDOWS)
+
+
+@task
+def prepare_title_pairs(ctx: Context) -> None:
+    """
+    Loads raw job titles and their corresponding ESCO URIs from the DECORTE
+    and Karrierewege+ datasets, then saves them as CSV files.
+    """
+    output_dir = "data/title_pairs"
+    os.makedirs(output_dir, exist_ok=True)
+
+    def save_pairs(pairs, output_path):
+        """Saves a list of pairs to a CSV file."""
+        df = pd.DataFrame(pairs, columns=['raw_title', 'esco_id'])
+        df.to_csv(output_path, index=False)
+        print(f"Saved {len(df)} unique pairs to {output_path}")
+
+    # --- Process DECORTE Dataset ---
+    print("Processing DECORTE dataset...")
+    decorte_train, decorte_val, decorte_test = load_raw_to_esco_pairs('decorte')
+
+    save_pairs(decorte_train, os.path.join(output_dir, "decorte_train_pairs.csv"))
+    save_pairs(decorte_val, os.path.join(output_dir, "decorte_val_pairs.csv"))
+    save_pairs(decorte_test, os.path.join(output_dir, "decorte_test_pairs.csv"))
+    print("-" * 20)
+
+    # --- Process Karrierewege+ Dataset ---
+    print("Processing Karrierewege+ dataset...")
+    kw_train, kw_val, kw_test = load_raw_to_esco_pairs('karrierewege_plus')
+
+    save_pairs(kw_train, os.path.join(output_dir, "karrierewege_plus_train_pairs.csv"))
+    save_pairs(kw_val, os.path.join(output_dir, "karrierewege_plus_val_pairs.csv"))
+    save_pairs(kw_test, os.path.join(output_dir, "karrierewege_plus_test_pairs.csv"))
+    print("-" * 20)
+
+
+@task
+def sanity_check_pairs(ctx: Context, file_path: str = "data/title_pairs/decorte_train_pairs.csv") -> None:
+    """
+    Performs a sanity check on a given CSV file of title pairs.
+
+    Args:
+        file_path (str): The path to the CSV file to check.
+    """
+    print(f"--- Running Sanity Check on: {file_path} ---")
+
+    # 1. Check if the file exists
+    if not os.path.exists(file_path):
+        print(f"Error: File not found at '{file_path}'")
+        print("Please run 'invoke prepare_title_pairs' first to generate the data.")
+        return
+
+    # 2. Check if the file can be loaded as a DataFrame
+    try:
+        df = pd.read_csv(file_path)
+    except Exception as e:
+        print(f"Error: Failed to read or parse the CSV file. Details: {e}")
+        return
+
+    # 3. Check for expected columns
+    expected_columns = ['raw_title', 'esco_id']
+    if not all(col in df.columns for col in expected_columns):
+        print(f"Error: Missing expected columns. Found: {list(df.columns)}, Expected: {expected_columns}")
+        return
+
+    # 4. Check if the DataFrame is empty
+    if df.empty:
+        print("Warning: The file is empty. No data pairs found.")
+        return
+
+    # 5. Print summary and head
+    print(f"✅ Sanity check passed!")
+    print(f"Total pairs found: {len(df)}")
+    print("Top 5 pairs:")
+    print(df.head())
+    print("-" * 20)

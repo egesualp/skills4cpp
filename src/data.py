@@ -1,3 +1,4 @@
+# elenasenger/karrierewege/src/data_classes.py (modified)
 from utils import load_prepare_decorte, load_prepare_karrierewege, load_prepare_decorte_esco
 import utils
 import re
@@ -21,7 +22,7 @@ class Data:
         labels (list): Unique labels in the dataset.
     """
 
-    def __init__(self, DATA_TYPE, DOC_1_PROMPT=None, DOC_2_PROMPT=None, ONLY_TITLES=False):
+    def __init__(self, DATA_TYPE, DOC_1_PROMPT=None, DOC_2_PROMPT=None, ONLY_TITLES=False, max_rows: int = None):
         """
         Initializes the Data class by loading the appropriate dataset based on the specified type.
 
@@ -30,11 +31,13 @@ class Data:
             DOC_1_PROMPT (str, optional): Prompt for document 1 (default: None).
             DOC_2_PROMPT (str, optional): Prompt for document 2 (default: None).
             ONLY_TITLES (bool): If True, extracts only job titles (default: False).
+            max_rows (int, optional): The maximum number of rows to load from each split. Defaults to None (load all).
         """
         self.DATA_TYPE = DATA_TYPE
         self.DOC_1_PROMPT = DOC_1_PROMPT
         self.DOC_2_PROMPT = DOC_2_PROMPT
         self.ONLY_TITLES = ONLY_TITLES
+        self.max_rows = max_rows
         self.train_pairs = None
         self.val_pairs = None
         self.test_pairs = None
@@ -50,27 +53,27 @@ class Data:
         """
         if self.DATA_TYPE == 'decorte':
             self.train_pairs, self.val_pairs, self.test_pairs = load_prepare_decorte(
-                consider_all_subspans_of_len_at_least_2=True, minus_last=False, 
+                consider_all_subspans_of_len_at_least_2=True, minus_last=False, max_rows=self.max_rows
             )
         elif self.DATA_TYPE == 'decorte_esco':
             self.train_pairs, self.val_pairs, self.test_pairs = load_prepare_decorte_esco(
-                consider_all_subspans_of_len_at_least_2=True, minus_last=False, 
+                consider_all_subspans_of_len_at_least_2=True, minus_last=False, max_rows=self.max_rows
             )
         elif self.DATA_TYPE == 'karrierewege':
             self.train_pairs, self.val_pairs, self.test_pairs = load_prepare_karrierewege(
-                consider_all_subspans_of_len_at_least_2=True, minus_last=False, language='en'
+                consider_all_subspans_of_len_at_least_2=True, minus_last=False, language='en', max_rows=self.max_rows
             )
         elif self.DATA_TYPE == 'karrierewege_occ':
             self.train_pairs, self.val_pairs, self.test_pairs = load_prepare_karrierewege(
-                consider_all_subspans_of_len_at_least_2=True, minus_last=False, language='en_free'
+                consider_all_subspans_of_len_at_least_2=True, minus_last=False, language='en_free', max_rows=self.max_rows
             )
         elif self.DATA_TYPE == 'karrierewege_100k':
             self.train_pairs, self.val_pairs, self.test_pairs = load_prepare_karrierewege(
-                consider_all_subspans_of_len_at_least_2=True, minus_last=False, language='esco_100k'
+                consider_all_subspans_of_len_at_least_2=True, minus_last=False, language='esco_100k', max_rows=self.max_rows
             )
         elif self.DATA_TYPE == 'karrierewege_cp':
             self.train_pairs, self.val_pairs, self.test_pairs = load_prepare_karrierewege(
-                consider_all_subspans_of_len_at_least_2=True, minus_last=False, language='en_free_cp'
+                consider_all_subspans_of_len_at_least_2=True, minus_last=False, language='en_free_cp', max_rows=self.max_rows
             )
 
         # Extract unique labels from the dataset
@@ -114,8 +117,8 @@ class Data:
         sequences = [re.findall(r"role: (.*?)\n", element[0]) for element in list_of_tuples]
         sequences = [utils.SEP_TOKEN.join(element) for element in sequences]  # Join role lists into strings
         
-        targets = [re.findall(r"esco role: (.*?)\n", element[1]) for element in list_of_tuples]
-        targets = [element[0] for element in targets]  # Convert list of lists to a flat list
+        targets_list = [re.findall(r"esco role: (.*?)\n", element[1]) for element in list_of_tuples]
+        targets = [element[0] if element else "" for element in targets_list]  # Convert list of lists to a flat list
         
         return list(zip(sequences, targets))  # Return as pairs
     
