@@ -15,7 +15,7 @@ logger.remove()
 logger.add(sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}")
 
 from .config import load_config
-from .data import load_esco_titles, load_pairs
+from .utils import load_esco_titles, load_pairs
 from .indexing import build_or_load_faiss_index, search_faiss_index
 from .metrics import map_esco_id_to_row, METRICS
 from .model import BiEncoder
@@ -40,7 +40,13 @@ def main(cfg: Box):
     """Main evaluation script."""
     t_start = time.monotonic()
     seed_all(cfg.project.seed)
-    cache_dir = Path(cfg.eval.cache_dir)
+    
+    # Create a unique model identifier for caching from the model path/name.
+    model_id = Path(cfg.model.hf_id).name
+    if cfg.eval.get("ckpt_path"):
+        model_id += "_" + Path(cfg.eval.ckpt_path).stem
+
+    cache_dir = Path(cfg.eval.cache_dir) / model_id
 
     if cfg.eval.get("clean_cache"):
         logger.info(f"Cleaning cache directory: {cache_dir}")

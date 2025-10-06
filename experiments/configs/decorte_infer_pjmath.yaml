@@ -1,0 +1,22 @@
+project:
+  name: "skills4cpp"
+  seed: 42
+
+data:
+  pairs_path: "data/title_pairs/decorte_test_pairs.csv"
+  esco_path: "data/occupations_en.csv"
+
+model:
+  hf_id: "pj-mathematician/JobGTE-7b-Lora"
+  proj_dim: null
+  asymmetric: false
+  normalize_output: true
+
+eval:
+  batch_size: 32
+  topk: 10
+  use_faiss: true
+  save_embeddings: true
+  save_predictions: true
+  cache_dir: "reports/eval_cache"
+  clean_cache: true

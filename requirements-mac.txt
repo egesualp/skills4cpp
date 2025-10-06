@@ -1,0 +1,45 @@
+# macOS-specific requirements for local development
+# This file is optimized for macOS development environment
+
+# Core ML/AI libraries
+torch>=2.6.0
+numpy>=2.3.3
+pandas>=2.3.2
+
+# NLP and embeddings
+sentence_transformers>=5.1.1
+datasets>=4.1.1
+
+# Vector search (use conda-forge for better macOS compatibility)
+# As of late 2025, faiss-gpu is not available for macOS via conda.
+# Use the CPU version, which is well-optimized and sufficient for local development.
+faiss-cpu>=1.9.0
+
+# Utilities
+tqdm>=4.67.1
+PyYAML>=6.0.3
+loguru
+python-box
+
+# Development tools
+pytest>=8.4.2
+invoke>=2.2.0   
+
+# Experiment tracking
+wandb
+
+# Optional: Jupyter for notebook development
+jupyter>=1.0.0
+ipykernel>=6.0.0
+
+# Optional: Better terminal experience on macOS
+rich>=13.0.0
+
+# Note: For faiss, use pip or conda. The GPU-accelerated version is not
+# available for macOS.
+#
+# Using pip:
+# pip install faiss-cpu
+#
+# Using conda:
+# conda install -c conda-forge faiss-cpu

@@ -6,7 +6,7 @@ from tqdm import tqdm
 from pathlib import Path
 
 SEP_TOKEN = "<SEP>"  # Separator token, used to separate sentences in a document pair. This can be model specific.
-DATA_PATH = Path("./data/")
+DATA_PATH = Path(__file__).parent.parent / "data"
 
 
 
@@ -500,7 +500,7 @@ def load_prepare_decorte_esco(minus_last, consider_all_subspans_of_len_at_least_
     return train_pairs, val_pairs, test_pairs
 
 # do i really need this?
-def load_raw_to_esco_pairs(dataset_name, max_rows: int = None):
+def load_raw_to_esco_pairs(dataset_name, max_rows: int = None, kw_source: str = 'all'):
     """
     Loads a dataset and extracts unique pairs of (raw job title, ESCO job title).
 
@@ -508,6 +508,8 @@ def load_raw_to_esco_pairs(dataset_name, max_rows: int = None):
         dataset_name (str): The name of the dataset to load.
                             Supported: 'decorte', 'karrierewege_plus'.
         max_rows (int, optional): Max rows to load from each split. Defaults to None.
+        kw_source (str, optional): For 'karrierewege_plus', specifies the source of raw titles.
+                                   Can be 'occ', 'cp', or 'all'. Defaults to 'all'.
 
     Returns:
         tuple: (train_pairs, val_pairs, test_pairs) containing unique (raw, ESCO) title pairs.
@@ -539,16 +541,20 @@ def load_raw_to_esco_pairs(dataset_name, max_rows: int = None):
 
         def create_pairs_from_kw(_dataset):
             df = _dataset.to_pandas()
-            # Collect pairs from both 'occ' (occupation) and 'cp' (career profile) raw titles
-            pairs_occ = df[['new_job_title_en_occ', 'preferredLabel_en']].dropna()
-            pairs_cp = df[['new_job_title_en_cp', 'preferredLabel_en']].dropna()
-
             all_pairs = []
-            for _, row in pairs_occ.iterrows():
-                all_pairs.append((row['new_job_title_en_occ'].strip(), row['preferredLabel_en'].strip()))
 
-            for _, row in pairs_cp.iterrows():
-                all_pairs.append((row['new_job_title_en_cp'].strip(), row['preferredLabel_en'].strip()))
+            if kw_source in ['occ', 'all']:
+                pairs_occ = df[['new_job_title_en_occ', 'preferredLabel_en']].dropna()
+                for _, row in pairs_occ.iterrows():
+                    all_pairs.append((row['new_job_title_en_occ'].strip(), row['preferredLabel_en'].strip()))
+
+            if kw_source in ['cp', 'all']:
+                pairs_cp = df[['new_job_title_en_cp', 'preferredLabel_en']].dropna()
+                for _, row in pairs_cp.iterrows():
+                    all_pairs.append((row['new_job_title_en_cp'].strip(), row['preferredLabel_en'].strip()))
+            
+            if kw_source not in ['occ', 'cp', 'all']:
+                raise ValueError("For 'karrierewege_plus', kw_source must be 'occ', 'cp', or 'all'.")
 
             return list(set(all_pairs))  # Return unique pairs
 
@@ -560,3 +566,27 @@ def load_raw_to_esco_pairs(dataset_name, max_rows: int = None):
 
     else:
         raise ValueError(f"Unsupported dataset_name: {dataset_name}. Supported are 'decorte', 'karrierewege_plus'.")
+
+
+def load_esco_titles(path: str) -> tuple[list[str], list[str]]:
+    """Loads ESCO titles and their IDs from a CSV file."""
+    df = pd.read_csv(path)
+    # drop rows with missing titles
+    df = df.dropna(subset=['preferredLabel'])
+    ids = df['conceptUri'].tolist()
+    titles = df['preferredLabel'].tolist()
+    return ids, titles
+
+
+def load_pairs(path: str) -> list[dict]:
+    """Loads job title pairs from a JSONL file."""
+    df = pd.read_csv(path)
+    # drop rows with missing titles
+    df = df.dropna(subset=['raw_title', 'esco_id'])
+    pairs = []
+    for _, row in df.iterrows():
+        pairs.append({
+            "job_title": row['raw_title'],
+            "esco_id": row['esco_id'],
+        })
+    return pairs

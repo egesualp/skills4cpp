@@ -7,7 +7,63 @@ import os
 # Add src to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 
-from utils import replace_esco_titles, subspans, load_prepare_decorte, load_prepare_decorte_esco, load_prepare_karrierewege, load_raw_to_esco_pairs, SEP_TOKEN
+from utils import (
+    load_esco_titles,
+    load_pairs,
+    replace_esco_titles, 
+    subspans, 
+    load_prepare_decorte, 
+    load_prepare_decorte_esco, 
+    load_prepare_karrierewege, 
+    load_raw_to_esco_pairs, 
+    SEP_TOKEN
+)
+
+
+class TestNewUtils:
+    """Test suite for new utility functions in utils.py."""
+
+    @pytest.fixture
+    def mock_esco_csv(self, tmp_path):
+        """Create a mock ESCO CSV file."""
+        csv_content = (
+            "conceptUri,preferredLabel\n"
+            "uri1,title1\n"
+            "uri2,title2\n"
+            "uri3,title3"
+        )
+        csv_file = tmp_path / "esco.csv"
+        csv_file.write_text(csv_content)
+        return str(csv_file)
+
+    @pytest.fixture
+    def mock_pairs_csv(self, tmp_path):
+        """Create a mock pairs CSV file."""
+        csv_content = (
+            "raw_title,esco_id\n"
+            "job1,uri1\n"
+            "job2,uri2\n"
+            "job3,uri3"
+        )
+        csv_file = tmp_path / "pairs.csv"
+        csv_file.write_text(csv_content)
+        return str(csv_file)
+
+    def test_load_esco_titles(self, mock_esco_csv):
+        """Test the load_esco_titles function."""
+        ids, titles = load_esco_titles(mock_esco_csv)
+        assert ids == ["uri1", "uri2", "uri3"]
+        assert titles == ["title1", "title2", "title3"]
+
+    def test_load_pairs(self, mock_pairs_csv):
+        """Test the load_pairs function."""
+        pairs = load_pairs(mock_pairs_csv)
+        expected = [
+            {"job_title": "job1", "esco_id": "uri1"},
+            {"job_title": "job2", "esco_id": "uri2"},
+            {"job_title": "job3", "esco_id": "uri3"},
+        ]
+        assert pairs == expected
 
 
 class TestUtils:
@@ -208,9 +264,9 @@ class TestUtils:
         train_pairs, val_pairs, test_pairs = load_raw_to_esco_pairs('decorte')
 
         expected_pairs = {
-            ('Software Intern', 'uri1'),
-            ('Developer', 'uri1'),
-            ('Data Analyst', 'uri2')
+            ('Software Intern', 'Software Developer'),
+            ('Developer', 'Software Developer'),
+            ('Data Analyst', 'Data Scientist')
         }
         assert set(train_pairs) == expected_pairs
         assert set(val_pairs) == expected_pairs
@@ -221,13 +277,13 @@ class TestUtils:
         """Test load_raw_to_esco_pairs with the 'karrierewege_plus' dataset."""
         mock_data = {
             'new_job_title_en_occ': ['Raw Title 1', 'Raw Title 2'],
-            'conceptUri': ['uri1', 'uri2'],
+            'preferredLabel_en': ['esco_1', 'esco_2'],
             'new_job_title_en_cp': ['Raw Title 3', 'Raw Title 1'],
         }
         mock_df = pd.DataFrame(mock_data)
         # Manually create the pairs as the function does to ensure correct test data
-        pairs_occ = mock_df[['new_job_title_en_occ', 'conceptUri']].dropna().values.tolist()
-        pairs_cp = mock_df[['new_job_title_en_cp', 'conceptUri']].dropna().values.tolist()
+        pairs_occ = mock_df[['new_job_title_en_occ', 'preferredLabel_en']].dropna().values.tolist()
+        pairs_cp = mock_df[['new_job_title_en_cp', 'preferredLabel_en']].dropna().values.tolist()
         all_pairs = set(map(tuple, pairs_occ + pairs_cp))
 
 
@@ -252,3 +308,74 @@ class TestUtils:
         """Test load_raw_to_esco_pairs with an unsupported dataset name."""
         with pytest.raises(ValueError):
             load_raw_to_esco_pairs('unsupported_dataset')
+
+
+class TestLoadRawToEscoPairsKarrierewege:
+    """Test suite for load_raw_to_esco_pairs with the 'karrierewege_plus' dataset."""
+
+    @pytest.fixture(autouse=True)
+    def setup_method(self):
+        """Set up test fixtures before each test method."""
+        self.mock_data = {
+            'new_job_title_en_occ': ['occ_title_1', 'occ_title_2', 'shared_title', None, None, None],
+            'new_job_title_en_cp': [None, None, None, 'cp_title_1', 'cp_title_2', 'shared_title'],
+            'preferredLabel_en': ['esco_occ_1', 'esco_occ_2', 'esco_shared', 'esco_cp_1', 'esco_cp_2', 'esco_shared_2']
+        }
+        self.mock_df = pd.DataFrame(self.mock_data)
+        
+        # Mock dataset object that has a to_pandas() method
+        mock_dataset_obj = MagicMock()
+        mock_dataset_obj.to_pandas.return_value = self.mock_df
+        
+        self.mock_dataset = {
+            'train': mock_dataset_obj,
+            'validation': mock_dataset_obj,
+            'test': mock_dataset_obj,
+        }
+
+        with patch('utils.load_dataset') as mock_load_dataset:
+            mock_load_dataset.return_value = self.mock_dataset
+            yield
+
+    def test_kw_source_all(self):
+        """Test with kw_source='all'."""
+        train_pairs, _, _ = load_raw_to_esco_pairs('karrierewege_plus', kw_source='all')
+        
+        # Manually create expected pairs from mock_df
+        pairs_occ = self.mock_df[['new_job_title_en_occ', 'preferredLabel_en']].dropna()
+        pairs_cp = self.mock_df[['new_job_title_en_cp', 'preferredLabel_en']].dropna()
+        
+        expected_pairs = set()
+        for _, row in pairs_occ.iterrows():
+            expected_pairs.add((row['new_job_title_en_occ'], row['preferredLabel_en']))
+        for _, row in pairs_cp.iterrows():
+            expected_pairs.add((row['new_job_title_en_cp'], row['preferredLabel_en']))
+            
+        assert set(train_pairs) == expected_pairs
+
+    def test_kw_source_occ(self):
+        """Test with kw_source='occ'."""
+        train_pairs, _, _ = load_raw_to_esco_pairs('karrierewege_plus', kw_source='occ')
+        
+        pairs_occ = self.mock_df[['new_job_title_en_occ', 'preferredLabel_en']].dropna()
+        expected_pairs = set()
+        for _, row in pairs_occ.iterrows():
+            expected_pairs.add((row['new_job_title_en_occ'], row['preferredLabel_en']))
+
+        assert set(train_pairs) == expected_pairs
+
+    def test_kw_source_cp(self):
+        """Test with kw_source='cp'."""
+        train_pairs, _, _ = load_raw_to_esco_pairs('karrierewege_plus', kw_source='cp')
+        
+        pairs_cp = self.mock_df[['new_job_title_en_cp', 'preferredLabel_en']].dropna()
+        expected_pairs = set()
+        for _, row in pairs_cp.iterrows():
+            expected_pairs.add((row['new_job_title_en_cp'], row['preferredLabel_en']))
+
+        assert set(train_pairs) == expected_pairs
+
+    def test_kw_source_invalid(self):
+        """Test with an invalid kw_source."""
+        with pytest.raises(ValueError, match="For 'karrierewege_plus', kw_source must be 'occ', 'cp', or 'all'."):
+            load_raw_to_esco_pairs('karrierewege_plus', kw_source='invalid_source')

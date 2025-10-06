@@ -96,11 +96,19 @@ def prepare_title_pairs(ctx: Context) -> None:
 
     # --- Process Karrierewege+ Dataset ---
     print("Processing Karrierewege+ dataset...")
-    kw_train, kw_val, kw_test = load_raw_to_esco_pairs('karrierewege_plus')
+    kw_source = "occ"
+    kw_train, kw_val, kw_test = load_raw_to_esco_pairs('karrierewege_plus', kw_source=kw_source)
 
-    save_pairs(kw_train, os.path.join(output_dir, "karrierewege_plus_train_pairs.csv"))
-    save_pairs(kw_val, os.path.join(output_dir, "karrierewege_plus_val_pairs.csv"))
-    save_pairs(kw_test, os.path.join(output_dir, "karrierewege_plus_test_pairs.csv"))
+    save_pairs(kw_train, os.path.join(output_dir, "karrierewege_plus_occ_train_pairs.csv"))
+    save_pairs(kw_val, os.path.join(output_dir, "karrierewege_plus_occ_val_pairs.csv"))
+    save_pairs(kw_test, os.path.join(output_dir, "karrierewege_plus_occ_test_pairs.csv"))
+    print("-" * 20)
+
+    kw_source = "cp"
+    kw_train, kw_val, kw_test = load_raw_to_esco_pairs('karrierewege_plus', kw_source=kw_source)
+    save_pairs(kw_train, os.path.join(output_dir, "karrierewege_plus_cp_train_pairs.csv"))
+    save_pairs(kw_val, os.path.join(output_dir, "karrierewege_plus_cp_val_pairs.csv"))
+    save_pairs(kw_test, os.path.join(output_dir, "karrierewege_plus_cp_test_pairs.csv"))
     print("-" * 20)
 
 
