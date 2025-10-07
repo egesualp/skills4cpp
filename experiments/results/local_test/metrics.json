@@ -1,0 +1,21 @@
+{
+  "recall@1": 0.16513190642110503,
+  "recall@5": 0.3557740169238427,
+  "recall@10": 0.4563215530114485,
+  "map@10": 0.247110250894783,
+  "mrr@10": 0.247110250894783,
+  "coverage": 0.9995024875621891,
+  "N_eval": 16080,
+  "encode_ms_per_query": 0.34948557475091274,
+  "run_details": {
+    "model_id": "all-MiniLM-L6-v2",
+    "data_path": [
+      "data/title_pairs/decorte_test_pairs.csv",
+      "data/title_pairs/karrierewege_plus_cp_test_pairs.csv"
+    ],
+    "proj_dim": null,
+    "topk": 10,
+    "use_faiss": false,
+    "normalize_embeddings": true
+  }
+}

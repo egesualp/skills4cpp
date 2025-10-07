@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+from box import Box
 
 
 @dataclass
@@ -20,12 +21,16 @@ class ModelConfig:
 @dataclass
 class DataConfig:
     """Data configuration with path validation."""
-    pairs_path: str
+    pairs_path: str | list[str]
     esco_titles_path: str
 
     def __post_init__(self):
         """Validate that data paths exist."""
-        self._validate_path(self.pairs_path, "pairs_path")
+        if isinstance(self.pairs_path, list):
+            for p in self.pairs_path:
+                self._validate_path(p, "pairs_path")
+        else:
+            self._validate_path(self.pairs_path, "pairs_path")
         self._validate_path(self.esco_titles_path, "esco_titles_path")
 
     def _validate_path(self, path: str, field_name: str):
@@ -83,70 +88,27 @@ class Config:
     wandb: WandbConfig
 
 
-def load_config(path: str) -> Config:
+def load_config(path: str) -> Box:
     """
-    Load configuration from YAML file.
+    Load configuration from a YAML file.
 
     Args:
-        path: Path to the YAML configuration file
+        path: The path to the YAML configuration file.
 
     Returns:
-        Config object with loaded and validated configuration
-
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-        yaml.YAMLError: If config file is malformed
-        ValueError: If configuration is missing required fields
+        A Box object containing the loaded configuration.
     """
     config_path = Path(path)
-
-    # Check if config file exists
     if not config_path.exists():
-        raise FileNotFoundError(
-            f"Configuration file not found: {path}. "
-            "Please ensure the config file exists or check the path."
-        )
+        raise FileNotFoundError(f"Configuration file not found at: {path}")
 
-    try:
-        # Load YAML file
-        with open(config_path, 'r', encoding='utf-8') as f:
+    with open(config_path, "r", encoding="utf-8") as f:
+        try:
             config_dict = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise yaml.YAMLError(f"Error parsing YAML file: {e}")
 
-        if config_dict is None:
-            raise ValueError(f"Configuration file is empty: {path}")
-
-        # Validate required top-level sections
-        required_sections = ['model', 'data', 'infer', 'eval', 'artifacts', 'wandb']
-        missing_sections = [section for section in required_sections if section not in config_dict]
-
-        if missing_sections:
-            raise ValueError(
-                f"Configuration file missing required sections: {missing_sections}. "
-                f"Please add these sections to {path}."
-            )
-
-        # Create nested config objects
-        model_config = ModelConfig(**config_dict['model'])
-        data_config = DataConfig(**config_dict['data'])
-        infer_config = InferConfig(**config_dict['infer'])
-        eval_config = EvalConfig(**config_dict['eval'])
-        artifacts_config = ArtifactsConfig(**config_dict['artifacts'])
-        wandb_config = WandbConfig(**config_dict['wandb'])
-
-        # Create main config object
-        return Config(
-            seed=config_dict['seed'],
-            device=config_dict['device'],
-            model=model_config,
-            data=data_config,
-            infer=infer_config,
-            eval=eval_config,
-            artifacts=artifacts_config,
-            wandb=wandb_config,
-        )
-
-    except yaml.YAMLError as e:
-        raise yaml.YAMLError(f"Error parsing configuration file {path}: {e}")
+    return Box(config_dict)
 
 
 def dump_config(config: Config, out_dir: str) -> str:

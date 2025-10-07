@@ -1,5 +1,30 @@
 import faiss
 import numpy as np
+from pathlib import Path
+
+
+def build_or_load_faiss_index(emb: np.ndarray, index_path: Path, use_cache: bool = True) -> faiss.Index:
+    """
+    Builds a FAISS index from embeddings and saves it, or loads it from cache.
+
+    Args:
+        emb: A 2D numpy array of embeddings.
+        index_path: The path to save/load the index file.
+        use_cache: If True, tries to load from index_path and saves the built index.
+
+    Returns:
+        The FAISS index.
+    """
+    if use_cache and index_path.exists():
+        return read_index(str(index_path))
+
+    index = build_ip_index(emb)
+
+    if use_cache:
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        write_index(index, str(index_path))
+
+    return index
 
 
 def build_ip_index(emb: np.ndarray) -> faiss.IndexFlatIP:
@@ -28,7 +53,7 @@ def build_ip_index(emb: np.ndarray) -> faiss.IndexFlatIP:
     return index
 
 
-def search_index(
+def search_faiss_index(
     index: faiss.Index, queries: np.ndarray, topk: int
 ) -> tuple[np.ndarray, np.ndarray]:
     """

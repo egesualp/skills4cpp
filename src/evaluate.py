@@ -53,7 +53,14 @@ def main(cfg: Box):
         if cache_dir.exists():
             shutil.rmtree(cache_dir)
 
-    cache_dir.mkdir(exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    if not cfg.eval.get("run_name"):
+        raise ValueError("Please specify a run_name in your config file.")
+    
+    results_dir = Path("experiments/results") / cfg.eval.run_name
+    results_dir.mkdir(parents=True, exist_ok=True)
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # 1. Load model
@@ -74,7 +81,11 @@ def main(cfg: Box):
 
     # 2. Load and encode ESCO titles
     logger.info("Loading ESCO titles...")
-    esco_ids, esco_titles = load_esco_titles(cfg.data.esco_path)
+    lowercase_setting = cfg.data.get("lowercase")
+    lowercase_esco_flag = lowercase_setting in ["both", "esco"]
+    esco_ids, esco_titles = load_esco_titles(
+        cfg.data.esco_path, lowercase=lowercase_esco_flag
+    )
 
     emb_path = cache_dir / "esco_emb.npy"
     ids_path = cache_dir / "esco_ids.json"
@@ -122,7 +133,12 @@ def main(cfg: Box):
 
     # 4. Load pairs and encode job titles
     logger.info("Loading evaluation pairs...")
-    pairs = load_pairs(cfg.data.pairs_path)
+    lowercase_pairs_flag = lowercase_setting in ["both", "pairs"]
+    pairs = load_pairs(
+        cfg.data.pairs_path,
+        lowercase_raw=lowercase_pairs_flag,
+        lowercase_esco=lowercase_esco_flag,
+    )
     job_texts = [p["job_title"] for p in pairs]
     gold_ids = [p["esco_id"] for p in pairs]
 
@@ -142,6 +158,7 @@ def main(cfg: Box):
     if cfg.eval.use_faiss:
         _, top_k_indices = search_faiss_index(index, job_emb, cfg.eval.topk)
     else:
+        # Cosine similarity here
         scores = job_emb @ esco_emb.T
         top_k_indices = np.argpartition(scores, -cfg.eval.topk, axis=1)[:, -cfg.eval.topk:]
         # Sort the top-k indices by score
@@ -173,11 +190,23 @@ def main(cfg: Box):
         "encode_ms_per_query": encode_ms_per_query,
     })
 
-    # 7. Print and save results
+    # 7. Add run details to metrics
+    run_details = {
+        "model_id": model_id,
+        "data_path": cfg.data.pairs_path,
+        "proj_dim": cfg.model.get("proj_dim"),
+        "topk": cfg.eval.topk,
+        "use_faiss": cfg.eval.use_faiss,
+        "normalize_embeddings": True,  # Hardcoded in encoding calls
+    }
+    metrics["run_details"] = run_details
+
+
+    # 8. Print and save results
     logger.info("Evaluation results:")
     pretty_print_metrics(metrics)
 
-    with open(cache_dir / "metrics.json", "w") as f:
+    with open(results_dir / "metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)
 
     if cfg.eval.save_predictions:
@@ -192,12 +221,12 @@ def main(cfg: Box):
                     "predicted_esco_ids": preds,
                 }
             )
-        with open(cache_dir / "predictions.jsonl", "w") as f:
+        with open(results_dir / "predictions.jsonl", "w") as f:
             for pred in predictions:
                 f.write(json.dumps(pred) + "\n")
 
     logger.info(f"Total evaluation time: {time.monotonic() - t_start:.2f}s")
-    logger.info(f"Results saved to {cache_dir}")
+    logger.info(f"Results saved to {results_dir}")
 
 
 if __name__ == "__main__":

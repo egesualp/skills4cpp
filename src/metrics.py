@@ -2,19 +2,20 @@ import numpy as np
 from typing import Dict, List, Tuple
 
 
-def map_esco_id_to_row(esco_ids: List[str]) -> Dict[str, int]:
+def map_esco_id_to_row(
+    gold_ids: List[str], all_esco_ids: List[str]
+) -> Tuple[List[int], float]:
     """
-    Creates a mapping from ESCO IDs to their row indices.
-
-    Args:
-        esco_ids: A list of ESCO skill IDs.
-
-    Returns:
-        A dictionary mapping each ESCO ID to its index in the list.
+    Maps gold ESCO IDs to row indices and computes coverage.
+    -1 is used for missing IDs.
     """
-    if not isinstance(esco_ids, list):
-        raise TypeError("esco_ids must be a list of strings.")
-    return {esco_id: i for i, esco_id in enumerate(esco_ids)}
+    id_to_row = {esco_id: i for i, esco_id in enumerate(all_esco_ids)}
+    gold_rows = [id_to_row.get(gold_id, -1) for gold_id in gold_ids]
+
+    n_found = sum(1 for row in gold_rows if row != -1)
+    coverage = n_found / len(gold_rows) if gold_rows else 0.0
+
+    return gold_rows, coverage
 
 
 def compute_recall_at_k(
@@ -58,7 +59,7 @@ def compute_recall_at_k(
     return recalls
 
 
-def compute_map_mrr_at_10(I: np.ndarray, gold_rows: List[int]) -> Tuple[float, float]:
+def compute_map_mrr_at_10(I: np.ndarray, gold_rows: List[int]) -> Dict[str, float]:
     """
     Computes Mean Average Precision (MAP) and Mean Reciprocal Rank (MRR) at 10.
 
@@ -68,7 +69,7 @@ def compute_map_mrr_at_10(I: np.ndarray, gold_rows: List[int]) -> Tuple[float, f
         gold_rows: A list of gold standard row indices. -1 indicates a missing gold.
 
     Returns:
-        A tuple containing (map_at_10, mrr_at_10).
+        A dictionary with map@10 and mrr@10.
     """
     if not isinstance(I, np.ndarray) or I.ndim != 2:
         raise TypeError("I must be a 2D numpy array.")
@@ -81,7 +82,7 @@ def compute_map_mrr_at_10(I: np.ndarray, gold_rows: List[int]) -> Tuple[float, f
     valid_gold_rows = [(i, gold_row) for i, gold_row in enumerate(gold_rows) if gold_row != -1]
     
     if not valid_gold_rows:
-        return 0.0, 0.0
+        return {"map@10": 0.0, "mrr@10": 0.0}
 
     for i, gold_row in valid_gold_rows:
         top_10 = I[i, :10]
@@ -96,4 +97,10 @@ def compute_map_mrr_at_10(I: np.ndarray, gold_rows: List[int]) -> Tuple[float, f
     map_at_10 = np.mean(ap_scores) if ap_scores else 0.0
     mrr_at_10 = np.mean(rr_scores) if rr_scores else 0.0
 
-    return float(map_at_10), float(mrr_at_10)
+    return {"map@10": float(map_at_10), "mrr@10": float(mrr_at_10)}
+
+
+METRICS = [
+    compute_recall_at_k,
+    compute_map_mrr_at_10,
+]

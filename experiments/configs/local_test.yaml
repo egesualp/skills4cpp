@@ -1,0 +1,22 @@
+project:
+  seed: 42
+
+model:
+  hf_id: "sentence-transformers/all-MiniLM-L6-v2"
+
+data:
+  esco_path: "data/occupations_en.csv"
+  pairs_path:
+    - "data/title_pairs/decorte_test_pairs.csv"
+    - "data/title_pairs/karrierewege_plus_cp_test_pairs.csv"
+  lowercase: 'both'
+
+eval:
+  cache_dir: "./cache/eval"
+  run_name: "local_test"
+  clean_cache: false
+  save_embeddings: true
+  batch_size: 32
+  use_faiss: false
+  topk: 10
+  save_predictions: true

@@ -568,25 +568,40 @@ def load_raw_to_esco_pairs(dataset_name, max_rows: int = None, kw_source: str = 
         raise ValueError(f"Unsupported dataset_name: {dataset_name}. Supported are 'decorte', 'karrierewege_plus'.")
 
 
-def load_esco_titles(path: str) -> tuple[list[str], list[str]]:
+def load_esco_titles(path: str, lowercase: bool = False) -> tuple[list[str], list[str]]:
     """Loads ESCO titles and their IDs from a CSV file."""
     df = pd.read_csv(path)
     # drop rows with missing titles
     df = df.dropna(subset=['preferredLabel'])
-    ids = df['conceptUri'].tolist()
+    ids = df['preferredLabel'].tolist()
     titles = df['preferredLabel'].tolist()
+    if lowercase:
+        ids = [str(i).lower() for i in ids]
+        titles = [str(t).lower() for t in titles]
     return ids, titles
 
 
-def load_pairs(path: str) -> list[dict]:
-    """Loads job title pairs from a JSONL file."""
-    df = pd.read_csv(path)
+def load_pairs(path: str | list[str], lowercase_raw: bool = False, lowercase_esco: bool = False) -> list[dict]:
+    """Loads job title pairs from one or more CSV files."""
+    if isinstance(path, str):
+        df = pd.read_csv(path)
+    else:
+        df = pd.concat([pd.read_csv(p) for p in path], ignore_index=True)
+        
     # drop rows with missing titles
     df = df.dropna(subset=['raw_title', 'esco_id'])
     pairs = []
     for _, row in df.iterrows():
+        job_title = str(row['raw_title'])
+        esco_id = str(row['esco_id'])
+
+        if lowercase_raw:
+            job_title = job_title.lower()
+        if lowercase_esco:
+            esco_id = esco_id.lower()
+
         pairs.append({
-            "job_title": row['raw_title'],
-            "esco_id": row['esco_id'],
+            "job_title": job_title,
+            "esco_id": esco_id,
         })
     return pairs
