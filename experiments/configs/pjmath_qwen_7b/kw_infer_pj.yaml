@@ -1,0 +1,29 @@
+seed: 42
+device: cuda
+
+# --- MODEL ---
+model:
+  hf_id: <PUT_PJ_MATHEMATICIAN_HF_ID_HERE>  # e.g., "pj-mathematician/..." if ST-compatible
+  proj_dim: null        # disable extra projection; use the checkpoint's native embeddings
+  asymmetric: false
+  normalize_output: true
+
+# --- DATA ---
+data:
+  pairs_path: data/kw/dev_job_esco.jsonl        # [{"job_title": "...", "esco_id": "..."}]
+  esco_titles_path: data/esco/esco_titles_en.jsonl  # [{"esco_id":"...","title":"..."}]
+
+# --- INFER / EVAL ---
+infer:
+  batch_size: 128
+  topk: 10
+
+artifacts:
+  run_dir: runs/pj_kw
+
+# --- W&B ---
+wandb:
+  enabled: true
+  project: "skills4cpp"
+  entity: "egesualp-ludwig-maximilianuniversity-of-munich"
+  name: "pj_kw_eval"

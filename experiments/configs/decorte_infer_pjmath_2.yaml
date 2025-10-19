@@ -1,0 +1,31 @@
+project:
+  name: "skills4cpp"
+  seed: 42
+
+data:
+  esco_path: "data/occupations_en.csv"
+  pairs_path:
+    - "data/title_pairs/decorte_test_pairs.csv"
+    - "data/title_pairs/decorte_train_pairs.csv"
+    - "data/title_pairs/decorte_val_pairs.csv"
+  lowercase: 'both'
+  ground_truth_col: "esco_id"
+
+model:
+  hf_id: "pj-mathematician/JobGTE-multilingual-base-v2"
+  proj_dim: null
+  asymmetric: false
+  normalize_output: true
+
+eval:
+  batch_size: 32
+  topk: 10
+  use_faiss: true
+  save_embeddings: true
+  save_predictions: true
+  cache_dir: "./cache/eval"
+  run_name: "infer_decorte_all_pjmath_2"
+  clean_cache: true
+  #use_st_evaluator: true
+  #evaluator_name: "decorte_pjmath_2"
+  #identity_test: true

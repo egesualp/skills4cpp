@@ -1,0 +1,22 @@
+{
+  "recall@1": 0.18334213305174235,
+  "recall@5": 0.4222544878563886,
+  "recall@10": 0.5314809926082366,
+  "map@10": 0.28583441758435163,
+  "mrr@10": 0.28583441758435163,
+  "map_full": 0.29899442463367376,
+  "mrr_full": 0.29899442463367376,
+  "coverage": 0.9998680216444503,
+  "N_eval": 15154,
+  "encode_ms_per_query": 5.8485935058963925,
+  "run_details": {
+    "model_id": "JobGTE-7b-Lora",
+    "data_path": [
+      "data/title_pairs/karrierewege_plus_cp_test_pairs.csv"
+    ],
+    "proj_dim": null,
+    "topk": 10,
+    "use_faiss": true,
+    "normalize_embeddings": true
+  }
+}

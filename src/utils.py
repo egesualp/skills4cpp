@@ -512,7 +512,7 @@ def load_raw_to_esco_pairs(dataset_name, max_rows: int = None, kw_source: str = 
                                    Can be 'occ', 'cp', or 'all'. Defaults to 'all'.
 
     Returns:
-        tuple: (train_pairs, val_pairs, test_pairs) containing unique (raw, ESCO) title pairs.
+        tuple: (train_pairs, val_pairs, test_pairs) containing unique (raw, ESCO title, ESCO URI) triplets.
     """
 
     split_slice = f"[:{max_rows}]" if max_rows is not None else ""
@@ -520,47 +520,58 @@ def load_raw_to_esco_pairs(dataset_name, max_rows: int = None, kw_source: str = 
     if dataset_name == 'decorte':
         dataset = load_dataset("jensjorisdecorte/anonymous-working-histories", split={s: s + split_slice for s in ["train", "validation", "test"]})
 
-        def create_pairs_from_decorte(_dataset):
-            pairs = []
+        def create_triplets_from_decorte(_dataset):
+            triplets = []
             for example in tqdm(_dataset):
                 for i in range(example["number_of_experiences"]):
                     raw_title = example.get(f"title_{i}")
                     esco_title = example.get(f"ESCO_title_{i}")
-                    if raw_title and esco_title and pd.notna(raw_title) and pd.notna(esco_title):
-                        pairs.append((raw_title.strip(), esco_title.strip()))
-            return list(set(pairs))  # Return unique pairs
+                    esco_uri = example.get(f"ESCO_uri_{i}")
+                    if raw_title and esco_title and esco_uri and pd.notna(raw_title) and pd.notna(esco_title) and pd.notna(esco_uri):
+                        triplets.append((raw_title.strip(), esco_title.strip(), esco_uri.strip()))
+            return list(set(triplets))  # Return unique triplets
 
-        train_pairs = create_pairs_from_decorte(dataset['train'])
-        val_pairs = create_pairs_from_decorte(dataset['validation'])
-        test_pairs = create_pairs_from_decorte(dataset['test'])
+        train_pairs = create_triplets_from_decorte(dataset['train'])
+        val_pairs = create_triplets_from_decorte(dataset['validation'])
+        test_pairs = create_triplets_from_decorte(dataset['test'])
 
         return train_pairs, val_pairs, test_pairs
 
     elif dataset_name == 'karrierewege_plus':
         dataset = load_dataset("ElenaSenger/Karrierewege_plus", split={s: s + split_slice for s in ["train", "validation", "test"]})
+        
+        esco_occupations = pd.read_csv(DATA_PATH / "occupations_en.csv")
+        esco_label_to_uri = esco_occupations.set_index('preferredLabel')['conceptUri'].to_dict()
 
-        def create_pairs_from_kw(_dataset):
+        def create_triplets_from_kw(_dataset):
             df = _dataset.to_pandas()
-            all_pairs = []
+            all_triplets = []
 
             if kw_source in ['occ', 'all']:
                 pairs_occ = df[['new_job_title_en_occ', 'preferredLabel_en']].dropna()
                 for _, row in pairs_occ.iterrows():
-                    all_pairs.append((row['new_job_title_en_occ'].strip(), row['preferredLabel_en'].strip()))
+                    esco_title = row['preferredLabel_en'].strip()
+                    concept_uri = esco_label_to_uri.get(row['preferredLabel_en'])
+                    if concept_uri:
+                        all_triplets.append((row['new_job_title_en_occ'].strip(), esco_title, concept_uri))
+
 
             if kw_source in ['cp', 'all']:
                 pairs_cp = df[['new_job_title_en_cp', 'preferredLabel_en']].dropna()
                 for _, row in pairs_cp.iterrows():
-                    all_pairs.append((row['new_job_title_en_cp'].strip(), row['preferredLabel_en'].strip()))
+                    esco_title = row['preferredLabel_en'].strip()
+                    concept_uri = esco_label_to_uri.get(row['preferredLabel_en'])
+                    if concept_uri:
+                        all_triplets.append((row['new_job_title_en_cp'].strip(), esco_title, concept_uri))
             
             if kw_source not in ['occ', 'cp', 'all']:
                 raise ValueError("For 'karrierewege_plus', kw_source must be 'occ', 'cp', or 'all'.")
 
-            return list(set(all_pairs))  # Return unique pairs
+            return list(set(all_triplets))  # Return unique triplets
 
-        train_pairs = create_pairs_from_kw(dataset['train'])
-        val_pairs = create_pairs_from_kw(dataset['validation'])
-        test_pairs = create_pairs_from_kw(dataset['test'])
+        train_pairs = create_triplets_from_kw(dataset['train'])
+        val_pairs = create_triplets_from_kw(dataset['validation'])
+        test_pairs = create_triplets_from_kw(dataset['test'])
 
         return train_pairs, val_pairs, test_pairs
 
@@ -572,8 +583,8 @@ def load_esco_titles(path: str, lowercase: bool = False) -> tuple[list[str], lis
     """Loads ESCO titles and their IDs from a CSV file."""
     df = pd.read_csv(path)
     # drop rows with missing titles
-    df = df.dropna(subset=['preferredLabel'])
-    ids = df['preferredLabel'].tolist()
+    df = df.dropna(subset=['preferredLabel', 'conceptUri'])
+    ids = df['conceptUri'].tolist()
     titles = df['preferredLabel'].tolist()
     if lowercase:
         ids = [str(i).lower() for i in ids]
@@ -589,7 +600,11 @@ def load_pairs(path: str | list[str], lowercase_raw: bool = False, lowercase_esc
         df = pd.concat([pd.read_csv(p) for p in path], ignore_index=True)
         
     # drop rows with missing titles
-    df = df.dropna(subset=['raw_title', 'esco_id'])
+    cols_to_check = ['raw_title', 'esco_id']
+    if 'esco_title' in df.columns:
+        cols_to_check.append('esco_title')
+    df = df.dropna(subset=cols_to_check)
+
     pairs = []
     for _, row in df.iterrows():
         job_title = str(row['raw_title'])
@@ -597,11 +612,44 @@ def load_pairs(path: str | list[str], lowercase_raw: bool = False, lowercase_esc
 
         if lowercase_raw:
             job_title = job_title.lower()
-        if lowercase_esco:
-            esco_id = esco_id.lower()
 
-        pairs.append({
-            "job_title": job_title,
-            "esco_id": esco_id,
-        })
+        if 'esco_title' in df.columns:
+            esco_title = str(row['esco_title'])
+            if lowercase_esco:
+                esco_title = esco_title.lower()
+                esco_id = esco_id.lower()
+            
+            pairs.append({
+                "job_title": job_title,
+                "esco_title": esco_title,
+                "esco_id": esco_id,
+            })
+        else:
+            if lowercase_esco:
+                esco_id = esco_id.lower()
+
+            pairs.append({
+                "job_title": job_title,
+                "esco_id": esco_id,
+            })
     return pairs
+
+
+def load_talent_clef_training_data():
+    """
+    Loads and processes the Talent CLEF Task A training data.
+
+    Returns:
+        pandas.DataFrame: A DataFrame with 'id' and 'job_title' columns.
+    """
+    file_path = DATA_PATH / "talent_clef/TaskA/training/english/taskA_training_en.tsv"
+    df = pd.read_csv(file_path, sep='\t', header=None, names=['family_id', 'id', 'jobtitle_1', 'jobtitle_2'])
+
+    df1 = df[['id', 'jobtitle_1']].copy()
+    df1.rename(columns={'jobtitle_1': 'job_title'}, inplace=True)
+
+    df2 = df[['id', 'jobtitle_2']].copy()
+    df2.rename(columns={'jobtitle_2': 'job_title'}, inplace=True)
+
+    result_df = pd.concat([df1, df2], ignore_index=True)
+    return result_df

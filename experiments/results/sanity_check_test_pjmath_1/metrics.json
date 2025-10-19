@@ -1,0 +1,22 @@
+{
+  "recall@1": 1.0,
+  "recall@5": 1.0,
+  "recall@10": 1.0,
+  "map@10": 1.0,
+  "mrr@10": 1.0,
+  "map_full": 1.0,
+  "mrr_full": 1.0,
+  "coverage": 1.0,
+  "N_eval": 3039,
+  "encode_ms_per_query": 5.964177902285335,
+  "run_details": {
+    "model_id": "JobGTE-7b-Lora",
+    "data_path": [
+      "data/title_pairs/decorte_test_pairs.csv"
+    ],
+    "proj_dim": null,
+    "topk": 10,
+    "use_faiss": true,
+    "normalize_embeddings": true
+  }
+}

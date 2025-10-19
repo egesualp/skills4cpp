@@ -1,0 +1,22 @@
+{
+  "recall@1": 0.6418801939058172,
+  "recall@5": 0.8214854570637119,
+  "recall@10": 0.8664300554016621,
+  "map@10": 0.71863723865585,
+  "mrr@10": 0.71863723865585,
+  "map_full": 0.722650063007756,
+  "mrr_full": 0.722650063007756,
+  "coverage": 1.0,
+  "N_eval": 57760,
+  "encode_ms_per_query": 6.347963637950201,
+  "run_details": {
+    "model_id": "JobGTE-7b-Lora",
+    "data_path": [
+      "data/title_pairs/talent_clef_pairs.csv"
+    ],
+    "proj_dim": null,
+    "topk": 10,
+    "use_faiss": true,
+    "normalize_embeddings": true
+  }
+}

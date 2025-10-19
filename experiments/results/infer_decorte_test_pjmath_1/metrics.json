@@ -1,0 +1,22 @@
+{
+  "recall@1": 0.28043478260869564,
+  "recall@5": 0.532608695652174,
+  "recall@10": 0.6239130434782608,
+  "map@10": 0.38590105244996553,
+  "mrr@10": 0.38590105244996553,
+  "map_full": 0.3953774493602563,
+  "mrr_full": 0.3953774493602563,
+  "coverage": 0.9935205183585313,
+  "N_eval": 926,
+  "encode_ms_per_query": 7.09573792939358,
+  "run_details": {
+    "model_id": "JobGTE-7b-Lora",
+    "data_path": [
+      "data/title_pairs/decorte_test_pairs.csv"
+    ],
+    "proj_dim": null,
+    "topk": 10,
+    "use_faiss": true,
+    "normalize_embeddings": true
+  }
+}

@@ -11,6 +11,10 @@ import torch
 from box import Box
 from loguru import logger
 
+from sentence_transformers.evaluation import InformationRetrievalEvaluator
+from sentence_transformers import util
+
+
 logger.remove()
 logger.add(sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}")
 
@@ -20,6 +24,77 @@ from .indexing import build_or_load_faiss_index, search_faiss_index
 from .metrics import map_esco_id_to_row, METRICS
 from .model import BiEncoder
 
+
+class AsymmetricInformationRetrievalEvaluator(InformationRetrievalEvaluator):
+    """
+    A custom Information Retrieval Evaluator for asymmetric models where the query and
+    corpus are encoded using different methods of the model. This evaluator is designed
+    to work with the custom BiEncoder class, which has distinct `encode_job` and
+    `encode_esco` methods.
+
+    This class overrides the `__call__` method of the base `InformationRetrievalEvaluator`
+    to use these specific encoding functions instead of a generic `encode` method. This
+    allows for correct handling of models with asymmetric architectures, such as those
+    with different projection heads for queries and documents.
+    """
+    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1, *args, **kwargs) -> float:
+        if epoch != -1:
+            out_txt = f" after epoch {epoch}:"
+        else:
+            out_txt = ":"
+
+        logger.info(f"Asymmetric Information Retrieval Evaluation on {self.name} dataset{out_txt}")
+
+        corpus_embeddings = model.encode_esco(
+            list(self.corpus.values()),
+            batch_size=self.batch_size,
+            show_progress_bar=self.show_progress_bar,
+            normalize=True,
+            convert_to_numpy=True
+        )
+
+        query_embeddings = model.encode_job(
+            list(self.queries.values()),
+            batch_size=self.batch_size,
+            show_progress_bar=self.show_progress_bar,
+            normalize=True,
+            convert_to_numpy=True
+        )
+        
+        # The information_retrieval method from the base class can be reused.
+        # It handles the search (including FAISS) and returns scores in the required format.
+        self.corpus_embeddings = corpus_embeddings
+        scores = self.information_retrieval(query_embeddings, self.corpus_embeddings)
+
+        # The compute_metrics and file logging logic can also be reused from the base class.
+        # We'll just call the necessary methods.
+        metrics = self.compute_metrics(scores)
+        
+        ndcg = metrics.get(f"ndcg@{self.top_k}", 0)
+        _map = metrics.get(f"map@{self.top_k}", 0)
+        recall = metrics.get(f"recall@{self.top_k}", 0)
+        precision = metrics.get(f"precision@{self.top_k}", 0)
+
+        metrics_log = {
+            f"ndcg@{self.top_k}": ndcg,
+            f"map@{self.top_k}": _map,
+            f"recall@{self.top_k}": recall,
+            f"precision@{self.top_k}": precision,
+        }
+        
+        logger.info("Metrics computed using sentence-transformers evaluator:")
+        pretty_print_metrics(metrics_log)
+
+        if output_path is not None:
+            csv_path = Path(output_path) / "st_eval_results.csv"
+            is_new_file = not csv_path.exists()
+            
+            with open(csv_path, "a", encoding="utf-8") as f:
+                if is_new_file:
+                    f.write(f"epoch,steps,ndcg@{self.top_k},map@{self.top_k},recall@{self.top_k},precision@{self.top_k}\n")
+                f.write(f"{epoch},{steps},{ndcg},{_map},{recall},{precision}\n")
+        
+        return _map
 
 def seed_all(seed: int):
     """Seed all random number generators."""
@@ -79,6 +154,47 @@ def main(cfg: Box):
         model.load_state_dict(ckpt)
     model.eval()
 
+    # If sentence-transformer evaluator is enabled, run it and exit.
+    if cfg.eval.get("use_st_evaluator"):
+        logger.info("Using sentence-transformers InformationRetrievalEvaluator.")
+        
+        # 1. Load data
+        lowercase_setting = cfg.data.get("lowercase")
+        lowercase_esco_flag = lowercase_setting in ["both", "esco"]
+        esco_ids, esco_titles = load_esco_titles(
+            cfg.data.esco_path, lowercase=lowercase_esco_flag
+        )
+        
+        lowercase_pairs_flag = lowercase_setting in ["both", "pairs"]
+        pairs = load_pairs(
+            cfg.data.pairs_path,
+            lowercase_raw=lowercase_pairs_flag,
+            lowercase_esco=lowercase_esco_flag,
+        )
+        
+        # 2. Prepare data for the evaluator
+        corpus = {str(esco_id): title for esco_id, title in zip(esco_ids, esco_titles)}
+        queries = {str(i): p["job_title"] for i, p in enumerate(pairs)}
+        
+        ground_truth_col = cfg.data.get("ground_truth_col", "esco_id")
+        relevant_docs = {str(i): {str(p[ground_truth_col])} for i, p in enumerate(pairs)}
+
+        evaluator = AsymmetricInformationRetrievalEvaluator(
+            queries=queries,
+            corpus=corpus,
+            relevant_docs=relevant_docs,
+            name=cfg.eval.get("evaluator_name", "st-eval"),
+            top_k=cfg.eval.topk,
+            batch_size=cfg.eval.batch_size,
+            show_progress_bar=True,
+        )
+
+        evaluator(model, output_path=str(results_dir))
+        
+        logger.info("Evaluation with sentence-transformers evaluator finished.")
+        return
+
+
     # 2. Load and encode ESCO titles
     logger.info("Loading ESCO titles...")
     lowercase_setting = cfg.data.get("lowercase")
@@ -132,15 +248,23 @@ def main(cfg: Box):
         )
 
     # 4. Load pairs and encode job titles
-    logger.info("Loading evaluation pairs...")
-    lowercase_pairs_flag = lowercase_setting in ["both", "pairs"]
-    pairs = load_pairs(
-        cfg.data.pairs_path,
-        lowercase_raw=lowercase_pairs_flag,
-        lowercase_esco=lowercase_esco_flag,
-    )
-    job_texts = [p["job_title"] for p in pairs]
-    gold_ids = [p["esco_id"] for p in pairs]
+    if cfg.eval.get("identity_test"):
+        logger.info("Performing identity test. Using ESCO titles as queries.")
+        job_texts = esco_titles
+        gold_ids = esco_ids
+    else:
+        logger.info("Loading evaluation pairs...")
+        lowercase_pairs_flag = lowercase_setting in ["both", "pairs"]
+        pairs = load_pairs(
+            cfg.data.pairs_path,
+            lowercase_raw=lowercase_pairs_flag,
+            lowercase_esco=lowercase_esco_flag,
+        )
+        job_texts = [p["job_title"] for p in pairs]
+        
+        # Use the configured ground truth column
+        ground_truth_col = cfg.data.get("ground_truth_col", "esco_id")
+        gold_ids = [p[ground_truth_col] for p in pairs]
 
     logger.info("Encoding job titles...")
     t_encode_start = time.monotonic()
@@ -156,20 +280,26 @@ def main(cfg: Box):
     # 5. Retrieve top-k
     logger.info("Retrieving top-k candidates...")
     if cfg.eval.use_faiss:
-        _, top_k_indices = search_faiss_index(index, job_emb, cfg.eval.topk)
+        # Use exact FAISS flat index to retrieve full ranking for exact MAP/MRR
+        k = len(esco_ids)
+        _, I = search_faiss_index(index, job_emb, k)
     else:
         # Cosine similarity here
         scores = job_emb @ esco_emb.T
-        top_k_indices = np.argpartition(scores, -cfg.eval.topk, axis=1)[:, -cfg.eval.topk:]
-        # Sort the top-k indices by score
-        rows = np.arange(len(job_emb))[:, np.newaxis]
-        top_k_scores = scores[rows, top_k_indices]
-        sorted_idx = np.argsort(top_k_scores, axis=1)[:, ::-1]
-        top_k_indices = top_k_indices[rows, sorted_idx]
+        # Get the full ranking
+        I = np.argsort(scores, axis=1)[:, ::-1]
 
     # 6. Compute metrics
     logger.info("Computing metrics...")
-    gold_rows, coverage = map_esco_id_to_row(gold_ids, esco_ids)
+    
+    # Select the correct list for mapping based on the ground truth column
+    ground_truth_col = cfg.data.get("ground_truth_col", "esco_id")
+    if ground_truth_col == "esco_id":
+        id_list_for_mapping = esco_ids
+    else:
+        id_list_for_mapping = esco_titles
+
+    gold_rows, coverage = map_esco_id_to_row(gold_ids, id_list_for_mapping)
 
     if coverage < 0.95:
         logger.warning(
@@ -179,7 +309,7 @@ def main(cfg: Box):
 
     metrics = {}
     for metric_fn in METRICS:
-        metrics.update(metric_fn(top_k_indices, gold_rows))
+        metrics.update(metric_fn(I, gold_rows))
 
     N_eval = len(job_texts)
     encode_ms_per_query = (t_encode_end - t_encode_start) * 1000 / N_eval
@@ -213,11 +343,17 @@ def main(cfg: Box):
         logger.info("Saving predictions...")
         predictions = []
         for i in range(len(job_texts)):
-            preds = [esco_ids[j] for j in top_k_indices[i]]
+            # Note: We save only top-k predictions regardless of I's size
+            preds = [esco_ids[j] for j in I[i, :cfg.eval.topk]]
+            
+            # Use the configured ground truth column for saving predictions
+            ground_truth_col = cfg.data.get("ground_truth_col", "esco_id")
+            gold_id = gold_ids[i]
+            
             predictions.append(
                 {
                     "job_title": job_texts[i],
-                    "gold_esco_id": gold_ids[i],
+                    f"gold_{ground_truth_col}": gold_id,
                     "predicted_esco_ids": preds,
                 }
             )

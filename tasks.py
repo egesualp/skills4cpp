@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from invoke import Context, task
 
-from src.utils import load_raw_to_esco_pairs
+from src.utils import load_raw_to_esco_pairs, load_talent_clef_training_data
 
 WINDOWS = os.name == "nt"
 PROJECT_NAME = "skills4cpp"
@@ -71,45 +71,60 @@ def serve_docs(ctx: Context) -> None:
 
 
 @task
-def prepare_title_pairs(ctx: Context) -> None:
+def prepare_title_pairs(ctx: Context, dataset: str = "all") -> None:
     """
     Loads raw job titles and their corresponding ESCO URIs from the DECORTE
     and Karrierewege+ datasets, then saves them as CSV files.
+
+    Args:
+        dataset (str): The dataset to process. Supported: 'decorte', 'karrierewege', 'talent_clef', 'all'.
     """
     output_dir = "data/title_pairs"
     os.makedirs(output_dir, exist_ok=True)
 
     def save_pairs(pairs, output_path):
         """Saves a list of pairs to a CSV file."""
-        df = pd.DataFrame(pairs, columns=['raw_title', 'esco_id'])
+        df = pd.DataFrame(pairs, columns=['raw_title', 'esco_title', 'esco_id'])
         df.to_csv(output_path, index=False)
         print(f"Saved {len(df)} unique pairs to {output_path}")
 
-    # --- Process DECORTE Dataset ---
-    print("Processing DECORTE dataset...")
-    decorte_train, decorte_val, decorte_test = load_raw_to_esco_pairs('decorte')
+    if dataset in ["decorte", "all"]:
+        # --- Process DECORTE Dataset ---
+        print("Processing DECORTE dataset...")
+        decorte_train, decorte_val, decorte_test = load_raw_to_esco_pairs('decorte')
 
-    save_pairs(decorte_train, os.path.join(output_dir, "decorte_train_pairs.csv"))
-    save_pairs(decorte_val, os.path.join(output_dir, "decorte_val_pairs.csv"))
-    save_pairs(decorte_test, os.path.join(output_dir, "decorte_test_pairs.csv"))
-    print("-" * 20)
+        save_pairs(decorte_train, os.path.join(output_dir, "decorte_train_pairs.csv"))
+        save_pairs(decorte_val, os.path.join(output_dir, "decorte_val_pairs.csv"))
+        save_pairs(decorte_test, os.path.join(output_dir, "decorte_test_pairs.csv"))
+        print("-" * 20)
 
-    # --- Process Karrierewege+ Dataset ---
-    print("Processing Karrierewege+ dataset...")
-    kw_source = "occ"
-    kw_train, kw_val, kw_test = load_raw_to_esco_pairs('karrierewege_plus', kw_source=kw_source)
+    if dataset in ["karrierewege", "all"]:
+        # --- Process Karrierewege+ Dataset ---
+        print("Processing Karrierewege+ dataset...")
+        kw_source = "occ"
+        kw_train, kw_val, kw_test = load_raw_to_esco_pairs('karrierewege_plus', kw_source=kw_source)
 
-    save_pairs(kw_train, os.path.join(output_dir, "karrierewege_plus_occ_train_pairs.csv"))
-    save_pairs(kw_val, os.path.join(output_dir, "karrierewege_plus_occ_val_pairs.csv"))
-    save_pairs(kw_test, os.path.join(output_dir, "karrierewege_plus_occ_test_pairs.csv"))
-    print("-" * 20)
+        save_pairs(kw_train, os.path.join(output_dir, "karrierewege_plus_occ_train_pairs.csv"))
+        save_pairs(kw_val, os.path.join(output_dir, "karrierewege_plus_occ_val_pairs.csv"))
+        save_pairs(kw_test, os.path.join(output_dir, "karrierewege_plus_occ_test_pairs.csv"))
+        print("-" * 20)
 
-    kw_source = "cp"
-    kw_train, kw_val, kw_test = load_raw_to_esco_pairs('karrierewege_plus', kw_source=kw_source)
-    save_pairs(kw_train, os.path.join(output_dir, "karrierewege_plus_cp_train_pairs.csv"))
-    save_pairs(kw_val, os.path.join(output_dir, "karrierewege_plus_cp_val_pairs.csv"))
-    save_pairs(kw_test, os.path.join(output_dir, "karrierewege_plus_cp_test_pairs.csv"))
-    print("-" * 20)
+        kw_source = "cp"
+        kw_train, kw_val, kw_test = load_raw_to_esco_pairs('karrierewege_plus', kw_source=kw_source)
+        save_pairs(kw_train, os.path.join(output_dir, "karrierewege_plus_cp_train_pairs.csv"))
+        save_pairs(kw_val, os.path.join(output_dir, "karrierewege_plus_cp_val_pairs.csv"))
+        save_pairs(kw_test, os.path.join(output_dir, "karrierewege_plus_cp_test_pairs.csv"))
+        print("-" * 20)
+
+    if dataset in ["talent_clef", "all"]:
+        # --- Process Talent CLEF Dataset ---
+        print("Processing Talent CLEF dataset...")
+        df = load_talent_clef_training_data()
+        df.rename(columns={'id': 'esco_id', 'job_title': 'raw_title'}, inplace=True)
+        output_path = os.path.join(output_dir, "talent_clef_pairs.csv")
+        df.to_csv(output_path, index=False)
+        print(f"Saved {len(df)} pairs to {output_path}")
+        print("-" * 20)
 
 
 @task
@@ -136,7 +151,7 @@ def sanity_check_pairs(ctx: Context, file_path: str = "data/title_pairs/decorte_
         return
 
     # 3. Check for expected columns
-    expected_columns = ['raw_title', 'esco_id']
+    expected_columns = ['raw_title', 'esco_title', 'esco_id']
     if not all(col in df.columns for col in expected_columns):
         print(f"Error: Missing expected columns. Found: {list(df.columns)}, Expected: {expected_columns}")
         return

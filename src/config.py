@@ -23,6 +23,7 @@ class DataConfig:
     """Data configuration with path validation."""
     pairs_path: str | list[str]
     esco_titles_path: str
+    ground_truth_col: str = "esco_id"
 
     def __post_init__(self):
         """Validate that data paths exist."""
@@ -143,7 +144,8 @@ def dump_config(config: Config, out_dir: str) -> str:
         },
         'data': {
             'pairs_path': config.data.pairs_path,
-            'esco_titles_path': config.data.esco_titles_path
+            'esco_titles_path': config.data.esco_titles_path,
+            'ground_truth_col': config.data.ground_truth_col,
         },
         'infer': {
             'batch_size': config.infer.batch_size,

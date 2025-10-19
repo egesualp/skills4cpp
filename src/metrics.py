@@ -59,9 +59,10 @@ def compute_recall_at_k(
     return recalls
 
 
-def compute_map_mrr_at_10(I: np.ndarray, gold_rows: List[int]) -> Dict[str, float]:
+def compute_map_mrr(I: np.ndarray, gold_rows: List[int]) -> Dict[str, float]:
     """
-    Computes Mean Average Precision (MAP) and Mean Reciprocal Rank (MRR) at 10.
+    Computes Mean Average Precision (MAP) and Mean Reciprocal Rank (MRR) at 10 and for the full ranking.
+    With single ground truth, MAP is equivalent to MRR.
 
     Args:
         I: A 2D numpy array of shape (n_queries, n_candidates) containing
@@ -69,38 +70,58 @@ def compute_map_mrr_at_10(I: np.ndarray, gold_rows: List[int]) -> Dict[str, floa
         gold_rows: A list of gold standard row indices. -1 indicates a missing gold.
 
     Returns:
-        A dictionary with map@10 and mrr@10.
+        A dictionary with map@10, mrr@10, map_full, and mrr_full.
     """
     if not isinstance(I, np.ndarray) or I.ndim != 2:
         raise TypeError("I must be a 2D numpy array.")
     if not isinstance(gold_rows, list) or len(gold_rows) != I.shape[0]:
         raise ValueError("gold_rows must be a list with length equal to I.shape[0].")
 
-    ap_scores = []
-    rr_scores = []
+    ap_scores_10 = []
+    rr_scores_10 = []
+    ap_scores_full = []
+    rr_scores_full = []
 
     valid_gold_rows = [(i, gold_row) for i, gold_row in enumerate(gold_rows) if gold_row != -1]
     
     if not valid_gold_rows:
-        return {"map@10": 0.0, "mrr@10": 0.0}
+        return {"map@10": 0.0, "mrr@10": 0.0, "map_full": 0.0, "mrr_full": 0.0}
 
     for i, gold_row in valid_gold_rows:
+        # @10
         top_10 = I[i, :10]
         try:
             rank = np.where(top_10 == gold_row)[0][0] + 1
-            ap_scores.append(1 / rank)
-            rr_scores.append(1 / rank)
+            ap_scores_10.append(1 / rank)
+            rr_scores_10.append(1 / rank)
         except IndexError:
-            ap_scores.append(0.0)
-            rr_scores.append(0.0)
+            ap_scores_10.append(0.0)
+            rr_scores_10.append(0.0)
+        
+        # full
+        full_ranking = I[i, :]
+        try:
+            rank = np.where(full_ranking == gold_row)[0][0] + 1
+            ap_scores_full.append(1 / rank)
+            rr_scores_full.append(1 / rank)
+        except IndexError:
+            ap_scores_full.append(0.0)
+            rr_scores_full.append(0.0)
 
-    map_at_10 = np.mean(ap_scores) if ap_scores else 0.0
-    mrr_at_10 = np.mean(rr_scores) if rr_scores else 0.0
+    map_at_10 = np.mean(ap_scores_10) if ap_scores_10 else 0.0
+    mrr_at_10 = np.mean(rr_scores_10) if rr_scores_10 else 0.0
+    map_full = np.mean(ap_scores_full) if ap_scores_full else 0.0
+    mrr_full = np.mean(rr_scores_full) if rr_scores_full else 0.0
 
-    return {"map@10": float(map_at_10), "mrr@10": float(mrr_at_10)}
+    return {
+        "map@10": float(map_at_10), 
+        "mrr@10": float(mrr_at_10),
+        "map_full": float(map_full),
+        "mrr_full": float(mrr_full),
+    }
 
 
 METRICS = [
     compute_recall_at_k,
-    compute_map_mrr_at_10,
+    compute_map_mrr,
 ]
