@@ -1,0 +1,28 @@
+project:
+  name: "skills4cpp"
+  seed: 42
+
+data:
+  esco_path: "data/occupations_en.csv"
+  pairs_path:
+    - "data/title_pairs/karrierewege_plus_occ_test_pairs.csv"
+    - "data/title_pairs/karrierewege_plus_occ_train_pairs.csv"
+    - "data/title_pairs/karrierewege_plus_occ_val_pairs.csv"
+  lowercase: 'both'
+
+model:
+  hf_id: "TechWolf/JobBERT-v2"
+  proj_dim: null
+  asymmetric: false
+  normalize_output: true
+
+eval:
+  batch_size: 32
+  topk: 10
+  use_faiss: true
+  save_embeddings: true
+  save_predictions: true
+  cache_dir: "./cache/eval"
+  run_name: "infer_kw_occ_all_techwolf"
+  clean_cache: false
+  compute_skill_coverage: true

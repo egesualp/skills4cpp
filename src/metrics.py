@@ -1,5 +1,6 @@
 import numpy as np
-from typing import Dict, List, Tuple
+import pandas as pd
+from typing import Dict, List, Tuple, Set, Optional
 
 
 def map_esco_id_to_row(
@@ -119,6 +120,103 @@ def compute_map_mrr(I: np.ndarray, gold_rows: List[int]) -> Dict[str, float]:
         "map_full": float(map_full),
         "mrr_full": float(mrr_full),
     }
+
+
+def load_skills_per_occupation(skills_path: str) -> Dict[str, Set[str]]:
+    """
+    Loads skills per occupation from CSV file.
+    
+    Args:
+        skills_path: Path to the skills_per_occupations.csv file.
+        
+    Returns:
+        A dictionary mapping occupation URIs to sets of skill URIs.
+    """
+    df = pd.read_csv(skills_path)
+    
+    # Group skills by occupation
+    skills_by_occupation = {}
+    for occupation_uri, group in df.groupby('occupationUri'):
+        # Include both essential and optional skills
+        skills = set(group['skillUri'].tolist())
+        skills_by_occupation[occupation_uri] = skills
+    
+    return skills_by_occupation
+
+
+def compute_skill_coverage(
+    I: np.ndarray,
+    gold_rows: List[int],
+    esco_ids: List[str],
+    skills_by_occupation: Dict[str, Set[str]],
+    ks: Tuple[int, ...] = (1, 3, 5, 10)
+) -> Dict[str, float]:
+    """
+    Computes skill coverage at various k values.
+    
+    Skill coverage measures what proportion of the skills from the gold ESCO occupation
+    are covered by the skills from the predicted ESCO occupations.
+    
+    Args:
+        I: A 2D numpy array of shape (n_queries, n_candidates) containing
+           ranked candidate indices for each query.
+        gold_rows: A list of gold standard row indices. -1 indicates a missing gold.
+        esco_ids: List of all ESCO occupation IDs/URIs.
+        skills_by_occupation: Dictionary mapping occupation URIs to sets of skill URIs.
+        ks: A tuple of integers for which to compute skill coverage.
+    
+    Returns:
+        A dictionary mapping skill_coverage@k to its value.
+    """
+    if not isinstance(I, np.ndarray) or I.ndim != 2:
+        raise TypeError("I must be a 2D numpy array.")
+    if not isinstance(gold_rows, list) or len(gold_rows) != I.shape[0]:
+        raise ValueError("gold_rows must be a list with length equal to I.shape[0].")
+    if not isinstance(ks, tuple):
+        raise TypeError("ks must be a tuple of integers.")
+    
+    coverage_scores = {f"skill_coverage@{k}": [] for k in ks}
+    
+    valid_gold_rows = [(i, gold_row) for i, gold_row in enumerate(gold_rows) if gold_row != -1]
+    
+    if not valid_gold_rows:
+        return {f"skill_coverage@{k}": 0.0 for k in ks}
+    
+    for query_idx, gold_row in valid_gold_rows:
+        # Get gold occupation URI and its skills
+        gold_occupation = esco_ids[gold_row]
+        gold_skills = skills_by_occupation.get(gold_occupation, set())
+        
+        if not gold_skills:
+            # If gold occupation has no skills, skip this query
+            continue
+        
+        for k in ks:
+            # Get predicted occupation URIs for top-k
+            predicted_rows = I[query_idx, :k]
+            predicted_occupations = [esco_ids[row] for row in predicted_rows if row < len(esco_ids)]
+            
+            # Collect all skills from predicted occupations
+            predicted_skills = set()
+            for occ_uri in predicted_occupations:
+                predicted_skills.update(skills_by_occupation.get(occ_uri, set()))
+            
+            # Calculate coverage: how many gold skills are covered by predicted skills
+            covered_skills = gold_skills.intersection(predicted_skills)
+            coverage = len(covered_skills) / len(gold_skills)
+            
+            coverage_scores[f"skill_coverage@{k}"].append(coverage)
+    
+    # Calculate mean coverage for each k
+    result = {}
+    for k in ks:
+        scores = coverage_scores[f"skill_coverage@{k}"]
+        if scores:
+            result[f"skill_coverage@{k}"] = float(np.mean(scores))
+        else:
+            result[f"skill_coverage@{k}"] = 0.0
+    
+    return result
 
 
 METRICS = [

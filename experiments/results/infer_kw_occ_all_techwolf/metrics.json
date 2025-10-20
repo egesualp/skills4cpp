@@ -1,0 +1,28 @@
+{
+  "recall@1": 0.23725429975429976,
+  "recall@5": 0.5417690417690417,
+  "recall@10": 0.6686117936117936,
+  "map@10": 0.3673955713018213,
+  "mrr@10": 0.3673955713018213,
+  "map_full": 0.37953081922290294,
+  "mrr_full": 0.37953081922290294,
+  "skill_coverage@1": 0.40104763222753265,
+  "skill_coverage@3": 0.6313954776816796,
+  "skill_coverage@5": 0.7191319629088366,
+  "skill_coverage@10": 0.8236665193513201,
+  "coverage": 1.0,
+  "N_eval": 13024,
+  "encode_ms_per_query": 0.33292388091107955,
+  "run_details": {
+    "model_id": "JobBERT-v2",
+    "data_path": [
+      "data/title_pairs/karrierewege_plus_occ_test_pairs.csv",
+      "data/title_pairs/karrierewege_plus_occ_train_pairs.csv",
+      "data/title_pairs/karrierewege_plus_occ_val_pairs.csv"
+    ],
+    "proj_dim": null,
+    "topk": 10,
+    "use_faiss": true,
+    "normalize_embeddings": true
+  }
+}

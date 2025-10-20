@@ -21,7 +21,7 @@ logger.add(sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {n
 from .config import load_config
 from .utils import load_esco_titles, load_pairs
 from .indexing import build_or_load_faiss_index, search_faiss_index
-from .metrics import map_esco_id_to_row, METRICS
+from .metrics import map_esco_id_to_row, METRICS, load_skills_per_occupation, compute_skill_coverage
 from .model import BiEncoder
 
 
@@ -191,6 +191,45 @@ def main(cfg: Box):
 
         evaluator(model, output_path=str(results_dir))
         
+        # Compute skill coverage metrics if requested
+        if cfg.eval.get("compute_skill_coverage", True):
+            logger.info("Computing skill coverage metrics for sentence-transformers evaluator...")
+            skills_path = cfg.data.get("skills_path", "data/skills_per_occupations.csv")
+            
+            if Path(skills_path).exists():
+                try:
+                    # Reuse embeddings from the evaluator to avoid duplicate encoding
+                    logger.info("Reusing embeddings from evaluator for skill coverage...")
+                    esco_emb = evaluator.corpus_embeddings
+                    job_emb = evaluator.query_embeddings
+                    
+                    # Compute rankings
+                    scores = job_emb @ esco_emb.T
+                    I = np.argsort(scores, axis=1)[:, ::-1]
+                    
+                    # Map gold IDs to rows
+                    gold_ids = [p[ground_truth_col] for p in pairs]
+                    gold_rows, _ = map_esco_id_to_row(gold_ids, esco_ids)
+                    
+                    # Compute skill coverage
+                    skills_by_occupation = load_skills_per_occupation(skills_path)
+                    skill_coverage_metrics = compute_skill_coverage(
+                        I, gold_rows, esco_ids, skills_by_occupation,
+                        ks=(1, 3, 5, 10)
+                    )
+                    
+                    logger.info("Skill coverage metrics:")
+                    pretty_print_metrics(skill_coverage_metrics)
+                    
+                    # Save skill coverage metrics
+                    with open(results_dir / "skill_coverage_metrics.json", "w") as f:
+                        json.dump(skill_coverage_metrics, f, indent=2)
+                    
+                except Exception as e:
+                    logger.warning(f"Could not compute skill coverage metrics: {e}")
+            else:
+                logger.warning(f"Skills data file not found at {skills_path}. Skipping skill coverage metrics.")
+        
         logger.info("Evaluation with sentence-transformers evaluator finished.")
         return
 
@@ -310,6 +349,25 @@ def main(cfg: Box):
     metrics = {}
     for metric_fn in METRICS:
         metrics.update(metric_fn(I, gold_rows))
+    
+    # 6a. Compute skill coverage metrics (only if ground truth is esco_id)
+    if ground_truth_col == "esco_id" and cfg.eval.get("compute_skill_coverage", True):
+        logger.info("Loading skills data and computing skill coverage metrics...")
+        skills_path = cfg.data.get("skills_path", "data/skills_per_occupations.csv")
+        
+        if Path(skills_path).exists():
+            try:
+                skills_by_occupation = load_skills_per_occupation(skills_path)
+                skill_coverage_metrics = compute_skill_coverage(
+                    I, gold_rows, esco_ids, skills_by_occupation,
+                    ks=(1, 3, 5, 10)
+                )
+                metrics.update(skill_coverage_metrics)
+                logger.info(f"Skill coverage metrics computed: {list(skill_coverage_metrics.keys())}")
+            except Exception as e:
+                logger.warning(f"Could not compute skill coverage metrics: {e}")
+        else:
+            logger.warning(f"Skills data file not found at {skills_path}. Skipping skill coverage metrics.")
 
     N_eval = len(job_texts)
     encode_ms_per_query = (t_encode_end - t_encode_start) * 1000 / N_eval

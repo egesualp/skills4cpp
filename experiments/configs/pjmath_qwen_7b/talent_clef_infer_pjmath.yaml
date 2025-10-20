@@ -22,5 +22,6 @@ eval:
   save_embeddings: true
   save_predictions: true
   cache_dir: "./cache/eval"
-  run_name: "infer_talent_clef_test_pjmath_1"
+  run_name: "infer_talent_clef_test_pjmath_1_v2"
   clean_cache: false
+  compute_skill_coverage: true

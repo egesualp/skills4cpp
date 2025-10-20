@@ -1,0 +1,26 @@
+{
+  "recall@1": 0.6780990304709141,
+  "recall@5": 0.8551765927977839,
+  "recall@10": 0.8987534626038781,
+  "map@10": 0.7540194922613553,
+  "mrr@10": 0.7540194922613553,
+  "map_full": 0.7572827972370104,
+  "mrr_full": 0.7572827972370104,
+  "skill_coverage@1": 0.7670949132531408,
+  "skill_coverage@3": 0.8833505455339782,
+  "skill_coverage@5": 0.9161348042411926,
+  "skill_coverage@10": 0.9465534808268203,
+  "coverage": 1.0,
+  "N_eval": 57760,
+  "encode_ms_per_query": 0.2579071210703179,
+  "run_details": {
+    "model_id": "JobBERT-v2",
+    "data_path": [
+      "data/title_pairs/talent_clef_pairs.csv"
+    ],
+    "proj_dim": null,
+    "topk": 10,
+    "use_faiss": true,
+    "normalize_embeddings": true
+  }
+}

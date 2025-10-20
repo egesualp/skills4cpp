@@ -24,6 +24,7 @@ eval:
   save_embeddings: true
   save_predictions: true
   cache_dir: "./cache/eval"
-  run_name: "infer_decorte_all_pjmath_1"
+  run_name: "infer_decorte_all_pjmath_1_v2"
   clean_cache: true
+  compute_skill_coverage: true
   #identity_test: true
