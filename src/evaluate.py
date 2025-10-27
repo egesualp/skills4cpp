@@ -19,7 +19,7 @@ logger.remove()
 logger.add(sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}")
 
 from .config import load_config
-from .utils import load_esco_titles, load_pairs
+from .utils import load_esco_titles, load_pairs, detect_pool_embeddings
 from .indexing import build_or_load_faiss_index, search_faiss_index
 from .metrics import map_esco_id_to_row, METRICS, load_skills_per_occupation, compute_skill_coverage
 from .model import BiEncoder
@@ -37,6 +37,10 @@ class AsymmetricInformationRetrievalEvaluator(InformationRetrievalEvaluator):
     allows for correct handling of models with asymmetric architectures, such as those
     with different projection heads for queries and documents.
     """
+    def __init__(self, *args, top_k=10, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.top_k = top_k
+    
     def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1, *args, **kwargs) -> float:
         if epoch != -1:
             out_txt = f" after epoch {epoch}:"
@@ -45,29 +49,40 @@ class AsymmetricInformationRetrievalEvaluator(InformationRetrievalEvaluator):
 
         logger.info(f"Asymmetric Information Retrieval Evaluation on {self.name} dataset{out_txt}")
 
+        # Handle both dict and list formats (parent class may convert to list)
+        corpus_texts = list(self.corpus.values()) if isinstance(self.corpus, dict) else self.corpus
+        query_texts = list(self.queries.values()) if isinstance(self.queries, dict) else self.queries
+
         corpus_embeddings = model.encode_esco(
-            list(self.corpus.values()),
+            corpus_texts,
             batch_size=self.batch_size,
             show_progress_bar=self.show_progress_bar,
             normalize=True,
-            convert_to_numpy=True
         )
 
         query_embeddings = model.encode_job(
-            list(self.queries.values()),
+            query_texts,
             batch_size=self.batch_size,
             show_progress_bar=self.show_progress_bar,
             normalize=True,
-            convert_to_numpy=True
         )
         
-        # The information_retrieval method from the base class can be reused.
-        # It handles the search (including FAISS) and returns scores in the required format.
+        # Store embeddings for potential reuse
         self.corpus_embeddings = corpus_embeddings
-        scores = self.information_retrieval(query_embeddings, self.corpus_embeddings)
-
-        # The compute_metrics and file logging logic can also be reused from the base class.
-        # We'll just call the necessary methods.
+        self.query_embeddings = query_embeddings
+        
+        # Compute similarity scores and format for compute_metrics
+        similarity_matrix = query_embeddings @ corpus_embeddings.T
+        
+        # Convert to dict format expected by compute_metrics: {query_id: {corpus_id: score}}
+        scores = {}
+        corpus_ids = list(self.corpus_ids) if hasattr(self, 'corpus_ids') else list(range(len(corpus_embeddings)))
+        query_ids = list(self.queries_ids) if hasattr(self, 'queries_ids') else list(range(len(query_embeddings)))
+        
+        for i, query_id in enumerate(query_ids):
+            scores[query_id] = {corpus_ids[j]: float(similarity_matrix[i, j]) for j in range(len(corpus_embeddings))}
+        
+        # Compute metrics using the parent class method
         metrics = self.compute_metrics(scores)
         
         ndcg = metrics.get(f"ndcg@{self.top_k}", 0)
@@ -154,6 +169,7 @@ def main(cfg: Box):
         model.load_state_dict(ckpt)
     model.eval()
 
+    # Below part is for sentence-transformer evaluator (not essential for the rest of the code)
     # If sentence-transformer evaluator is enabled, run it and exit.
     if cfg.eval.get("use_st_evaluator"):
         logger.info("Using sentence-transformers InformationRetrievalEvaluator.")
@@ -232,6 +248,7 @@ def main(cfg: Box):
         
         logger.info("Evaluation with sentence-transformers evaluator finished.")
         return
+    # End of sentence-transformer evaluator part
 
 
     # 2. Load and encode ESCO titles
@@ -279,18 +296,30 @@ def main(cfg: Box):
 
     assert esco_emb.dtype == np.float32
 
+    # Auto-pool if there are multiple rows per esco_id
+    pooled_ids, pooled_titles, pooled_emb, did_pool = detect_pool_embeddings(
+        esco_ids, esco_titles, esco_emb, logger, renorm=True
+    )
+
+    # Decide what to use everywhere below
+    index_ids    = pooled_ids   if did_pool else esco_ids
+    index_titles = pooled_titles if did_pool else esco_titles
+    index_emb    = pooled_emb   if did_pool else esco_emb
+
     # 3. Build or load FAISS index
     if cfg.eval.use_faiss:
         logger.info("Building or loading FAISS index...")
         index = build_or_load_faiss_index(
-            esco_emb, cache_dir / "index.faiss", use_cache=cfg.eval.save_embeddings
+            index_emb,  # <-- use pooled if available
+            cache_dir / "index.faiss",
+            use_cache=cfg.eval.save_embeddings
         )
 
     # 4. Load pairs and encode job titles
     if cfg.eval.get("identity_test"):
         logger.info("Performing identity test. Using ESCO titles as queries.")
-        job_texts = esco_titles
-        gold_ids = esco_ids
+        job_texts = index_titles
+        gold_ids = index_ids
     else:
         logger.info("Loading evaluation pairs...")
         lowercase_pairs_flag = lowercase_setting in ["both", "pairs"]
@@ -320,11 +349,11 @@ def main(cfg: Box):
     logger.info("Retrieving top-k candidates...")
     if cfg.eval.use_faiss:
         # Use exact FAISS flat index to retrieve full ranking for exact MAP/MRR
-        k = len(esco_ids)
+        k = len(index_ids)
         _, I = search_faiss_index(index, job_emb, k)
     else:
         # Cosine similarity here
-        scores = job_emb @ esco_emb.T
+        scores = job_emb @ index_emb.T
         # Get the full ranking
         I = np.argsort(scores, axis=1)[:, ::-1]
 
@@ -334,9 +363,9 @@ def main(cfg: Box):
     # Select the correct list for mapping based on the ground truth column
     ground_truth_col = cfg.data.get("ground_truth_col", "esco_id")
     if ground_truth_col == "esco_id":
-        id_list_for_mapping = esco_ids
+        id_list_for_mapping = index_ids
     else:
-        id_list_for_mapping = esco_titles
+        id_list_for_mapping = index_titles
 
     gold_rows, coverage = map_esco_id_to_row(gold_ids, id_list_for_mapping)
 
@@ -359,7 +388,7 @@ def main(cfg: Box):
             try:
                 skills_by_occupation = load_skills_per_occupation(skills_path)
                 skill_coverage_metrics = compute_skill_coverage(
-                    I, gold_rows, esco_ids, skills_by_occupation,
+                    I, gold_rows, index_ids, skills_by_occupation,
                     ks=(1, 3, 5, 10)
                 )
                 metrics.update(skill_coverage_metrics)
@@ -402,7 +431,7 @@ def main(cfg: Box):
         predictions = []
         for i in range(len(job_texts)):
             # Note: We save only top-k predictions regardless of I's size
-            preds = [esco_ids[j] for j in I[i, :cfg.eval.topk]]
+            preds = [index_ids[j] for j in I[i, :cfg.eval.topk]]
             
             # Use the configured ground truth column for saving predictions
             ground_truth_col = cfg.data.get("ground_truth_col", "esco_id")

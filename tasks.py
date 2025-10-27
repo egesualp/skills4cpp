@@ -79,12 +79,15 @@ def prepare_title_pairs(ctx: Context, dataset: str = "all") -> None:
     Args:
         dataset (str): The dataset to process. Supported: 'decorte', 'karrierewege', 'talent_clef', 'all'.
     """
-    output_dir = "data/title_pairs"
+    output_dir = "data/title_pairs_desc"
     os.makedirs(output_dir, exist_ok=True)
 
     def save_pairs(pairs, output_path):
         """Saves a list of pairs to a CSV file."""
-        df = pd.DataFrame(pairs, columns=['raw_title', 'esco_title', 'esco_id'])
+        df = pd.DataFrame(pairs)
+        # Ensure columns are in a consistent order
+        columns = ['raw_title', 'raw_description', 'esco_title', 'esco_description', 'esco_id']
+        df = df[columns]
         df.to_csv(output_path, index=False)
         print(f"Saved {len(df)} unique pairs to {output_path}")
 
@@ -151,7 +154,7 @@ def sanity_check_pairs(ctx: Context, file_path: str = "data/title_pairs/decorte_
         return
 
     # 3. Check for expected columns
-    expected_columns = ['raw_title', 'esco_title', 'esco_id']
+    expected_columns = ['raw_title', 'raw_description', 'esco_title', 'esco_description', 'esco_id']
     if not all(col in df.columns for col in expected_columns):
         print(f"Error: Missing expected columns. Found: {list(df.columns)}, Expected: {expected_columns}")
         return

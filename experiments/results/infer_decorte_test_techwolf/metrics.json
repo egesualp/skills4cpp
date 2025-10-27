@@ -1,0 +1,26 @@
+{
+  "recall@1": 0.3708108108108108,
+  "recall@5": 0.6194594594594595,
+  "recall@10": 0.7135135135135136,
+  "map@10": 0.4803848133848134,
+  "mrr@10": 0.4803848133848134,
+  "map_full": 0.489386627397404,
+  "mrr_full": 0.489386627397404,
+  "skill_coverage@1": 0.48824489569093404,
+  "skill_coverage@3": 0.678844214904822,
+  "skill_coverage@5": 0.749116439248475,
+  "skill_coverage@10": 0.8351344199385059,
+  "coverage": 0.9989200863930886,
+  "N_eval": 926,
+  "encode_ms_per_query": 11.335425401713948,
+  "run_details": {
+    "model_id": "JobBERT-v2",
+    "data_path": [
+      "data/title_pairs/decorte_test_pairs.csv"
+    ],
+    "proj_dim": null,
+    "topk": 10,
+    "use_faiss": true,
+    "normalize_embeddings": true
+  }
+}

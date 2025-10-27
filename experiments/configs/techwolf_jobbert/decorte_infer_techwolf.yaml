@@ -3,11 +3,9 @@ project:
   seed: 42
 
 data:
-  esco_path: "data/occupations_en.csv"
+  esco_path: "data/occupations_en_expanded.csv"
   pairs_path:
     - "data/title_pairs/decorte_test_pairs.csv"
-    - "data/title_pairs/decorte_train_pairs.csv"
-    - "data/title_pairs/decorte_val_pairs.csv"
   lowercase: 'both'
   ground_truth_col: "esco_id"
 
@@ -24,7 +22,9 @@ eval:
   save_embeddings: true
   save_predictions: true
   cache_dir: "./cache/eval"
-  run_name: "infer_decorte_all_techwolf"
+  run_name: "infer_decorte_test_techwolf_expanded_st"
   clean_cache: true
   compute_skill_coverage: true
+  use_st_evaluator: true
+  evaluator_name: "decorte_techwolf"
   #identity_test: true

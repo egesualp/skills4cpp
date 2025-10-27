@@ -4,6 +4,8 @@ from datasets import load_dataset
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
+from collections import defaultdict
+import numpy as np
 
 SEP_TOKEN = "<SEP>"  # Separator token, used to separate sentences in a document pair. This can be model specific.
 DATA_PATH = Path(__file__).parent.parent / "data"
@@ -502,7 +504,7 @@ def load_prepare_decorte_esco(minus_last, consider_all_subspans_of_len_at_least_
 # do i really need this?
 def load_raw_to_esco_pairs(dataset_name, max_rows: int = None, kw_source: str = 'all'):
     """
-    Loads a dataset and extracts unique pairs of (raw job title, ESCO job title).
+    Loads a dataset and extracts unique pairs of (raw job title, ESCO job title) with descriptions.
 
     Args:
         dataset_name (str): The name of the dataset to load.
@@ -512,66 +514,138 @@ def load_raw_to_esco_pairs(dataset_name, max_rows: int = None, kw_source: str = 
                                    Can be 'occ', 'cp', or 'all'. Defaults to 'all'.
 
     Returns:
-        tuple: (train_pairs, val_pairs, test_pairs) containing unique (raw, ESCO title, ESCO URI) triplets.
+        tuple: (train_pairs, val_pairs, test_pairs) containing unique dictionaries with keys:
+               'raw_title', 'raw_description', 'esco_title', 'esco_description', 'esco_id'.
     """
 
     split_slice = f"[:{max_rows}]" if max_rows is not None else ""
+    
+    # Load ESCO occupations for descriptions
+    esco_occupations = pd.read_csv(DATA_PATH / "occupations_en.csv")
+    esco_uri_to_description = esco_occupations.set_index('conceptUri')['description'].to_dict()
+    esco_label_to_description = esco_occupations.set_index('preferredLabel')['description'].to_dict()
 
     if dataset_name == 'decorte':
         dataset = load_dataset("jensjorisdecorte/anonymous-working-histories", split={s: s + split_slice for s in ["train", "validation", "test"]})
 
-        def create_triplets_from_decorte(_dataset):
-            triplets = []
+        def create_pairs_from_decorte(_dataset):
+            pairs_dict = {}
             for example in tqdm(_dataset):
                 for i in range(example["number_of_experiences"]):
                     raw_title = example.get(f"title_{i}")
+                    raw_description = example.get(f"description_{i}")
                     esco_title = example.get(f"ESCO_title_{i}")
                     esco_uri = example.get(f"ESCO_uri_{i}")
+                    
                     if raw_title and esco_title and esco_uri and pd.notna(raw_title) and pd.notna(esco_title) and pd.notna(esco_uri):
-                        triplets.append((raw_title.strip(), esco_title.strip(), esco_uri.strip()))
-            return list(set(triplets))  # Return unique triplets
+                        raw_title = raw_title.strip()
+                        esco_title = esco_title.strip()
+                        esco_uri = esco_uri.strip()
+                        
+                        # Get ESCO description from the CSV
+                        esco_description = esco_uri_to_description.get(esco_uri, "")
+                        
+                        # Handle raw description (may be None or NaN)
+                        if raw_description and pd.notna(raw_description):
+                            raw_description = raw_description.strip()
+                        else:
+                            raw_description = ""
+                        
+                        # Use tuple as key for uniqueness (raw_title, esco_title, esco_uri)
+                        key = (raw_title, esco_title, esco_uri)
+                        if key not in pairs_dict:
+                            pairs_dict[key] = {
+                                "raw_title": raw_title,
+                                "raw_description": raw_description,
+                                "esco_title": esco_title,
+                                "esco_description": esco_description,
+                                "esco_id": esco_uri,
+                            }
+            return list(pairs_dict.values())
 
-        train_pairs = create_triplets_from_decorte(dataset['train'])
-        val_pairs = create_triplets_from_decorte(dataset['validation'])
-        test_pairs = create_triplets_from_decorte(dataset['test'])
+        train_pairs = create_pairs_from_decorte(dataset['train'])
+        val_pairs = create_pairs_from_decorte(dataset['validation'])
+        test_pairs = create_pairs_from_decorte(dataset['test'])
 
         return train_pairs, val_pairs, test_pairs
 
     elif dataset_name == 'karrierewege_plus':
         dataset = load_dataset("ElenaSenger/Karrierewege_plus", split={s: s + split_slice for s in ["train", "validation", "test"]})
         
-        esco_occupations = pd.read_csv(DATA_PATH / "occupations_en.csv")
         esco_label_to_uri = esco_occupations.set_index('preferredLabel')['conceptUri'].to_dict()
 
-        def create_triplets_from_kw(_dataset):
+        def create_pairs_from_kw(_dataset):
             df = _dataset.to_pandas()
-            all_triplets = []
+            pairs_dict = {}
 
             if kw_source in ['occ', 'all']:
-                pairs_occ = df[['new_job_title_en_occ', 'preferredLabel_en']].dropna()
+                pairs_occ = df[['new_job_title_en_occ', 'new_job_description_en_occ', 'preferredLabel_en', 'description_en']].dropna(subset=['new_job_title_en_occ', 'preferredLabel_en'])
                 for _, row in pairs_occ.iterrows():
+                    raw_title = row['new_job_title_en_occ'].strip()
                     esco_title = row['preferredLabel_en'].strip()
                     concept_uri = esco_label_to_uri.get(row['preferredLabel_en'])
+                    
                     if concept_uri:
-                        all_triplets.append((row['new_job_title_en_occ'].strip(), esco_title, concept_uri))
-
+                        # Get raw description (from the occ field)
+                        raw_description = ""
+                        if pd.notna(row['new_job_description_en_occ']):
+                            raw_description = row['new_job_description_en_occ'].strip()
+                        
+                        # Get ESCO description (first try description_en, then fall back to CSV)
+                        esco_description = ""
+                        if pd.notna(row['description_en']):
+                            esco_description = row['description_en'].strip()
+                        else:
+                            esco_description = esco_uri_to_description.get(concept_uri, "")
+                        
+                        key = (raw_title, esco_title, concept_uri)
+                        if key not in pairs_dict:
+                            pairs_dict[key] = {
+                                "raw_title": raw_title,
+                                "raw_description": raw_description,
+                                "esco_title": esco_title,
+                                "esco_description": esco_description,
+                                "esco_id": concept_uri,
+                            }
 
             if kw_source in ['cp', 'all']:
-                pairs_cp = df[['new_job_title_en_cp', 'preferredLabel_en']].dropna()
+                pairs_cp = df[['new_job_title_en_cp', 'new_job_description_en_cp', 'preferredLabel_en', 'description_en']].dropna(subset=['new_job_title_en_cp', 'preferredLabel_en'])
                 for _, row in pairs_cp.iterrows():
+                    raw_title = row['new_job_title_en_cp'].strip()
                     esco_title = row['preferredLabel_en'].strip()
                     concept_uri = esco_label_to_uri.get(row['preferredLabel_en'])
+                    
                     if concept_uri:
-                        all_triplets.append((row['new_job_title_en_cp'].strip(), esco_title, concept_uri))
+                        # Get raw description (from the cp field)
+                        raw_description = ""
+                        if pd.notna(row['new_job_description_en_cp']):
+                            raw_description = row['new_job_description_en_cp'].strip()
+                        
+                        # Get ESCO description (first try description_en, then fall back to CSV)
+                        esco_description = ""
+                        if pd.notna(row['description_en']):
+                            esco_description = row['description_en'].strip()
+                        else:
+                            esco_description = esco_uri_to_description.get(concept_uri, "")
+                        
+                        key = (raw_title, esco_title, concept_uri)
+                        if key not in pairs_dict:
+                            pairs_dict[key] = {
+                                "raw_title": raw_title,
+                                "raw_description": raw_description,
+                                "esco_title": esco_title,
+                                "esco_description": esco_description,
+                                "esco_id": concept_uri,
+                            }
             
             if kw_source not in ['occ', 'cp', 'all']:
                 raise ValueError("For 'karrierewege_plus', kw_source must be 'occ', 'cp', or 'all'.")
 
-            return list(set(all_triplets))  # Return unique triplets
+            return list(pairs_dict.values())
 
-        train_pairs = create_triplets_from_kw(dataset['train'])
-        val_pairs = create_triplets_from_kw(dataset['validation'])
-        test_pairs = create_triplets_from_kw(dataset['test'])
+        train_pairs = create_pairs_from_kw(dataset['train'])
+        val_pairs = create_pairs_from_kw(dataset['validation'])
+        test_pairs = create_pairs_from_kw(dataset['test'])
 
         return train_pairs, val_pairs, test_pairs
 
@@ -613,25 +687,31 @@ def load_pairs(path: str | list[str], lowercase_raw: bool = False, lowercase_esc
         if lowercase_raw:
             job_title = job_title.lower()
 
+        # Create pair dictionary
+        pair = {"job_title": job_title}
+        
+        # Add raw description if available
+        if 'raw_description' in df.columns and pd.notna(row.get('raw_description')):
+            pair['raw_description'] = str(row['raw_description'])
+        
         if 'esco_title' in df.columns:
             esco_title = str(row['esco_title'])
             if lowercase_esco:
                 esco_title = esco_title.lower()
                 esco_id = esco_id.lower()
             
-            pairs.append({
-                "job_title": job_title,
-                "esco_title": esco_title,
-                "esco_id": esco_id,
-            })
+            pair['esco_title'] = esco_title
+            pair['esco_id'] = esco_id
+            
+            # Add ESCO description if available
+            if 'esco_description' in df.columns and pd.notna(row.get('esco_description')):
+                pair['esco_description'] = str(row['esco_description'])
         else:
             if lowercase_esco:
                 esco_id = esco_id.lower()
-
-            pairs.append({
-                "job_title": job_title,
-                "esco_id": esco_id,
-            })
+            pair['esco_id'] = esco_id
+        
+        pairs.append(pair)
     return pairs
 
 
@@ -653,3 +733,103 @@ def load_talent_clef_training_data():
 
     result_df = pd.concat([df1, df2], ignore_index=True)
     return result_df
+
+def detect_pool_embeddings(esco_ids, esco_titles, esco_emb, logger, renorm=True):
+    """
+    If multiple rows per esco_id exist, average their embeddings and re-normalize.
+    Returns (ids_out, titles_out, emb_out, did_pool: bool)
+    """
+    groups = defaultdict(list)
+    for i, eid in enumerate(esco_ids):
+        groups[eid].append(i)
+
+    n_rows = len(esco_ids)
+    n_unique = len(groups)
+
+    if n_unique == n_rows:
+        logger.info("No duplicate esco_id found. Skipping pooling.")
+        emb = esco_emb.astype(np.float32, copy=False)
+        return esco_ids, esco_titles, emb, False
+
+    pooled_ids, pooled_titles, pooled_vecs = [], [], []
+    dup_rows = 0
+    dup_ids = 0
+
+    for eid, idxs in groups.items():
+        if len(idxs) > 1:
+            dup_ids += 1
+            dup_rows += (len(idxs) - 1)
+        vecs = esco_emb[idxs]              # shape (m_i, d)
+        v = vecs.mean(axis=0)              # (d,)
+        if renorm:
+            n = np.linalg.norm(v)
+            if n > 0:
+                v = v / n
+        pooled_ids.append(eid)
+        pooled_titles.append(esco_titles[idxs[0]])  # pick first as representative label
+        pooled_vecs.append(v.astype(np.float32, copy=False))
+
+    emb_out = np.vstack(pooled_vecs).astype(np.float32, copy=False)
+    logger.info(
+        f"Pooling ESCO embeddings: {n_rows} rows -> {len(pooled_ids)} unique "
+        f"(collapsed {dup_rows} duplicate rows across {dup_ids} duplicated ids)."
+    )
+    return pooled_ids, pooled_titles, emb_out, True
+
+
+def create_ir_dataset_from_pairs(pairs_path, corpus_path, output_dir):
+    """
+    Converts a pair-based dataset into a three-file Information Retrieval format
+    (queries, corpus_elements, qrels) similar to Talent CLEF.
+
+    Args:
+        pairs_path (str or Path): Path to the CSV file containing query/gold pairs.
+                                  Expected columns: 'raw_title', 'esco_id'.
+        corpus_path (str or Path): Path to the CSV file containing all possible documents.
+                                   Expected columns: 'conceptUri', 'preferredLabel'.
+        output_dir (str or Path): Directory to save the three output files.
+    """
+    print(f"Creating IR dataset in: {output_dir}")
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Load input files
+    print("  [1/4] Loading input files...")
+    pairs_df = pd.read_csv(pairs_path)
+    corpus_df = pd.read_csv(corpus_path)
+    print(f"    ✓ Found {len(pairs_df)} pairs and {len(corpus_df)} corpus documents.")
+
+    # 2. Create and save `corpus_elements`
+    print("  [2/4] Creating corpus...")
+    corpus_out_df = corpus_df.rename(columns={"preferredLabel": "jobtitle"})
+    corpus_out_df = corpus_out_df.reset_index().rename(columns={"index": "c_id"})
+    corpus_elements = corpus_out_df[['c_id', 'jobtitle']]
+    corpus_elements.to_csv(output_dir / "corpus_elements", sep='\t', index=False)
+    print(f"    ✓ Saved {len(corpus_elements)} corpus elements.")
+
+    # 3. Create and save `queries`
+    print("  [3/4] Creating queries...")
+    queries_out_df = pairs_df[['raw_title']].copy()
+    queries_out_df = queries_out_df.reset_index().rename(columns={"index": "q_id", "raw_title": "jobtitle"})
+    queries_out_df.to_csv(output_dir / "queries", sep='\t', index=False)
+    print(f"    ✓ Saved {len(queries_out_df)} queries.")
+
+    # 4. Create and save `qrels.tsv`
+    print("  [4/4] Creating relevance judgements (qrels)...")
+    esco_to_cids = corpus_out_df.groupby('conceptUri')['c_id'].apply(list).to_dict()
+
+    qrels_data = []
+    pairs_with_qids = pairs_df.reset_index().rename(columns={"index": "q_id"})
+
+    for _, row in pairs_with_qids.iterrows():
+        q_id = row['q_id']
+        gold_esco_id = row['esco_id']
+        if gold_esco_id in esco_to_cids:
+            relevant_cids = esco_to_cids[gold_esco_id]
+            for c_id in relevant_cids:
+                qrels_data.append([q_id, 0, c_id, 1])
+    
+    qrels_df = pd.DataFrame(qrels_data)
+    qrels_df.to_csv(output_dir / "qrels.tsv", sep='\t', index=False, header=False)
+    print(f"    ✓ Saved {len(qrels_df)} relevance judgements.")
+    print("Done!")
