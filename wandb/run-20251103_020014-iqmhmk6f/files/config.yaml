@@ -1,0 +1,110 @@
+_wandb:
+    value:
+        cli_version: 0.22.1
+        e:
+            woa47bachhctbzwaix22zvr2urm7lrhz:
+                apple:
+                    ecpuCores: 6
+                    gpuCores: 10
+                    memoryGb: 24
+                    name: Apple M4
+                    pcpuCores: 4
+                    ramTotalBytes: "25769803776"
+                args:
+                    - --task=train_category
+                    - --source=decorte
+                    - --target_level=1
+                    - --input_variant=title+desc
+                    - --encoder_ckpt=all-MiniLM-L6-v2
+                    - --hidden_dim=384
+                    - --epochs=5
+                    - --batch_size=32
+                    - --lr=1e-3
+                    - --run_name=step1_cat_L1_all_source
+                    - --out_dir=checkpoints/
+                    - --wandb
+                cpu_count: 10
+                cpu_count_logical: 10
+                disk:
+                    /:
+                        total: "494384795648"
+                        used: "163915706368"
+                email: egesualp@gmail.com
+                executable: /opt/miniconda3/envs/thesis/bin/python
+                git:
+                    commit: 5cb36bf61572bcd9168c52a8e552962573736105
+                    remote: git@github.com:egesualp/skills4cpp.git
+                host: Eges-Air.fritz.box
+                memory:
+                    total: "25769803776"
+                os: macOS-15.5-arm64-arm-64bit
+                program: -m src.skill_mapping.v1.train
+                python: CPython 3.11.13
+                root: /Users/egesualp/Documents/lmu_repos/skills4cpp
+                startedAt: "2025-11-03T01:00:14.951419Z"
+                writerId: woa47bachhctbzwaix22zvr2urm7lrhz
+        m: []
+        python_version: 3.11.13
+        t:
+            "1":
+                - 1
+                - 5
+                - 11
+                - 49
+                - 51
+                - 53
+                - 75
+            "2":
+                - 1
+                - 5
+                - 11
+                - 49
+                - 51
+                - 53
+                - 75
+            "3":
+                - 13
+                - 16
+            "4": 3.11.13
+            "5": 0.22.1
+            "6": 4.57.0
+            "12": 0.22.1
+            "13": darwin-arm64
+batch_size:
+    value: 32
+device:
+    value: cpu
+encoder_ckpt:
+    value: all-MiniLM-L6-v2
+epochs:
+    value: 5
+eval_threshold:
+    value: 0.5
+hidden_dim:
+    value: 384
+input_variant:
+    value: title+desc
+is_structured:
+    value: false
+logging_steps:
+    value: 50
+lr:
+    value: 0.001
+out_dir:
+    value: checkpoints/
+project:
+    value: hier-skill
+run_name:
+    value: step1_cat_L1_all_source
+scheduler:
+    value: null
+seed:
+    value: 42
+source:
+    value: decorte
+target_level:
+    value: 1
+task:
+    value: train_category
+wandb:
+    value: true

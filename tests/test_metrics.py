@@ -101,3 +101,13 @@ def test_compute_map_mrr_at_10_no_valid_golds():
     metrics = compute_map_mrr_at_10(I, gold_rows)
     assert metrics["mrr@10"] == 0.0
     assert metrics["map@10"] == 0.0
+
+
+
+
+
+
+
+
+
+

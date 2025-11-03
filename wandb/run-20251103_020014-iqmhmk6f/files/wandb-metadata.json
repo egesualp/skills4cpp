@@ -1,0 +1,48 @@
+{
+  "os": "macOS-15.5-arm64-arm-64bit",
+  "python": "CPython 3.11.13",
+  "startedAt": "2025-11-03T01:00:14.951419Z",
+  "args": [
+    "--task=train_category",
+    "--source=decorte",
+    "--target_level=1",
+    "--input_variant=title+desc",
+    "--encoder_ckpt=all-MiniLM-L6-v2",
+    "--hidden_dim=384",
+    "--epochs=5",
+    "--batch_size=32",
+    "--lr=1e-3",
+    "--run_name=step1_cat_L1_all_source",
+    "--out_dir=checkpoints/",
+    "--wandb"
+  ],
+  "program": "-m src.skill_mapping.v1.train",
+  "git": {
+    "remote": "git@github.com:egesualp/skills4cpp.git",
+    "commit": "5cb36bf61572bcd9168c52a8e552962573736105"
+  },
+  "email": "egesualp@gmail.com",
+  "root": "/Users/egesualp/Documents/lmu_repos/skills4cpp",
+  "host": "Eges-Air.fritz.box",
+  "executable": "/opt/miniconda3/envs/thesis/bin/python",
+  "cpu_count": 10,
+  "cpu_count_logical": 10,
+  "disk": {
+    "/": {
+      "total": "494384795648",
+      "used": "163915706368"
+    }
+  },
+  "memory": {
+    "total": "25769803776"
+  },
+  "apple": {
+    "name": "Apple M4",
+    "ecpuCores": 6,
+    "pcpuCores": 4,
+    "gpuCores": 10,
+    "memoryGb": 24,
+    "ramTotalBytes": "25769803776"
+  },
+  "writerId": "woa47bachhctbzwaix22zvr2urm7lrhz"
+}
