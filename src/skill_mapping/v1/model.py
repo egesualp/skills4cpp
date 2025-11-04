@@ -3,7 +3,8 @@
 import torch
 import torch.nn as nn
 from torch.nn.functional import cosine_similarity, binary_cross_entropy_with_logits
-from typing import List, Dict, Callable, Tuple
+from typing import List, Dict, Callable, Tuple, Optional
+from sentence_transformers import SentenceTransformer
 
 # -----------------------------
 # 1. Reusable Components
@@ -11,27 +12,40 @@ from typing import List, Dict, Callable, Tuple
 
 class TextEncoderWrapper(nn.Module):
     """
-    A simple nn.Module wrapper for a text encoding function.
+    A proper nn.Module wrapper for a SentenceTransformer model
+    that enables fine-tuning.
     
-    This allows us to pass a simple callable (like a lambda for
-    SentenceTransformer.encode) into our models and have it
-    be part of the model graph, enabling fine-tuning.
+    Instead of wrapping the .encode() function (which detaches gradients),
+    this class holds the model itself and performs the tokenization
+    and forward pass manually.
     """
-    def __init__(self, encoder_callable: Callable[[List[str]], torch.Tensor]):
+    def __init__(self, sbert_model: SentenceTransformer):
         super().__init__()
-        # This backbone is expected to be a function, e.g.:
-        # lambda texts: model.encode(texts, convert_to_tensor=True)
-        self.backbone = encoder_callable
+        # Hold the actual SentenceTransformer model
+        self.sbert_model = sbert_model
 
     def forward(self, text_batch: List[str]) -> torch.Tensor:
         """
+        Performs a gradient-tracking forward pass.
+        
         Args:
             text_batch: A list of raw strings (length B).
         Returns:
             A [B, D] tensor of embeddings.
         """
-        # The callable is assumed to handle encoding and tensor conversion
-        return self.backbone(text_batch)
+        # 1. Tokenize the batch of texts
+        features = self.sbert_model.tokenize(text_batch)
+        
+        # 2. Move token tensors to the same device as the model
+        #    (Assumes sbert_model has been moved, e.g., .to(device))
+        for k, v in features.items():
+            features[k] = v.to(self.sbert_model.device)
+            
+        # 3. Perform the model's forward pass
+        #    This returns a dictionary, and we extract the embedding
+        output = self.sbert_model(features)
+        
+        return output['sentence_embedding']
 
 class MultiLabelClassifierHead(nn.Module):
     """
@@ -82,14 +96,14 @@ class CategoryPredictor(nn.Module):
         logits = self.classifier(emb)       # [B, C]
         return logits
 
-    def compute_loss(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    def compute_loss(self, logits: torch.Tensor, targets: torch.Tensor, pos_weight: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Computes the loss for a batch.
         Args:
             logits: [B, C] raw scores from forward()
             targets: [B, C] multi-hot {0,1} labels
         """
-        return binary_cross_entropy_with_logits(logits, targets)
+        return binary_cross_entropy_with_logits(logits, targets, pos_weight=pos_weight)
 
     @torch.no_grad()
     def predict_proba(self, text_batch: List[str]) -> torch.Tensor:

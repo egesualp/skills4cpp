@@ -38,8 +38,8 @@ def parse_args():
     # --- Model & Pipeline Config ---
     parser.add_argument("--hier_level", type=int, default=1, 
                         help="Hierarchy level (0-3) to use for re-ranking.")
-    parser.add_argument("--hidden_dim", type=int, default=384, 
-                        help="Hidden dim of the base_encoder (384 for MiniLM, 1024 for BGE-Large)")
+    parser.add_argument("--hidden_dim", type=int, default=None, 
+                        help="Hidden dim of the base_encoder. If None, inferred.")  
     parser.add_argument("--text_fields", type=str, default="title+desc")
     parser.add_argument("--is_structured", action="store_true")
 
@@ -261,6 +261,12 @@ def main(args):
 
     # --- 3. Load Step 1: Category Model ---
     base_encoder = SentenceTransformer(args.base_encoder_ckpt, device=device)
+
+    if args.hidden_dim is None:
+        logger.info(f"hidden_dim not set. Inferring from {args.base_encoder_ckpt}...")
+        args.hidden_dim = base_encoder.get_sentence_embedding_dimension()
+        logger.info(f"Inferred hidden_dim: {args.hidden_dim}")
+
     category_model = load_category_model(
         ckpt_path=Path(args.cat_model_ckpt),
         base_encoder=base_encoder,

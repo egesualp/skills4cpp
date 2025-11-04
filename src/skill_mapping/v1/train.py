@@ -14,7 +14,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from sklearn.metrics import f1_score, precision_score, recall_score, hamming_loss
-from typing import Dict, List, Callable
+from typing import Dict, List, Callable, Optional
 import random
 
 # Import our new model and data classes
@@ -47,8 +47,8 @@ def parse_args():
 
     # Model args
     parser.add_argument("--encoder_ckpt", type=str, default="all-MiniLM-L6-v2")
-    parser.add_argument("--hidden_dim", type=int, default=384,
-                        help="Dimension of the SBERT model (e.g., 384 for MiniLM-L6).")
+    parser.add_argument("--hidden_dim", type=int, default=None, 
+                        help="Embedding dim. If None, it's inferred from the encoder_ckpt.")
 
     # Training args
     parser.add_argument("--batch_size", type=int, default=16)
@@ -175,6 +175,39 @@ def evaluate_similarity(model: SkillSimilarityModel, dataloader: DataLoader) -> 
     return {'eval_loss': avg_loss}
 
 # -----------------------------
+# Solution: Class Imbalance
+# -----------------------------
+
+def calculate_pos_weights(dataset: CategoryDataset, device: torch.device) -> torch.Tensor:
+    """
+    Calculates positive weights for BCEWithLogitsLoss to handle class imbalance.
+    The weight for a class is: (Number of Negatives) / (Number of Positives)
+    """
+    logger.info("Calculating positive weights for class imbalance...")
+    
+    # Stack all target vectors from the dataset
+    all_targets = torch.stack([s['y'] for s in dataset.samples])
+    num_samples = len(all_targets)
+    
+    # Count positive occurrences (class frequency) for each class
+    pos_counts = all_targets.sum(dim=0)
+    
+    # Avoid division by zero for classes that *never* appear in the training data
+    pos_counts[pos_counts == 0] = 1 
+    
+    # Calculate negative counts
+    neg_counts = num_samples - pos_counts
+    
+    # Calculate weights
+    # We clamp to prevent extremely large weights (e.g., max weight of 100)
+    pos_weight = torch.clamp(neg_counts / pos_counts, min=1.0, max=100.0)
+    
+    logger.info(f"Class weights calculated. Min: {pos_weight.min():.2f}, Max: {pos_weight.max():.2f}, Mean: {pos_weight.mean():.2f}")
+    
+    return pos_weight.to(device)
+
+
+# -----------------------------
 # Training Loops
 # -----------------------------
 
@@ -184,7 +217,8 @@ def train_classifier(
     val_loader: DataLoader, 
     optimizer: torch.optim.Optimizer, 
     scheduler, 
-    args: argparse.Namespace
+    args: argparse.Namespace,
+    pos_weight: Optional[torch.Tensor] = None
 ):
     """Main training loop for the CategoryPredictor."""
     model.train()
@@ -199,7 +233,7 @@ def train_classifier(
             y = batch["y"].to(args.device)
 
             logits = model(texts)
-            loss = model.compute_loss(logits, y)
+            loss = model.compute_loss(logits, y, pos_weight=pos_weight)
 
             optimizer.zero_grad()
             loss.backward()
@@ -347,24 +381,8 @@ def main():
         # Load the SBERT model as a native nn.Module.
         encoder = SentenceTransformer(args.encoder_ckpt).to(device)
         
-        # Wrap it in our nn.Module wrapper (defined in model.py)
-        # This wrapper *must* be correctly implemented to pass gradients
-        # Note: A simple lambda x: model.encode(x) will detach the graph.
-        # We assume TextEncoderWrapper is implemented to handle this.
-        # A simple fix for your model.py's TextEncoderWrapper:
-        # def __init__(self, sbert_model: SentenceTransformer):
-        #   self.sbert = sbert_model
-        # def forward(self, texts):
-        #   features = self.sbert.tokenize(texts)
-        #   for k, v in features.items(): features[k] = v.to(self.sbert.device)
-        #   return self.sbert(features)['sentence_embedding']
+        encoder_wrapper = TextEncoderWrapper(encoder) 
         
-        # --- For simplicity, let's assume your TextEncoderWrapper is just a pass-through
-        # and we pass the *full model* to AdamW.
-        
-        encoder_wrapper = TextEncoderWrapper(
-            lambda texts: encoder.encode(texts, convert_to_tensor=True, device=device)
-        )
         model = SkillSimilarityModel(encoder=encoder_wrapper).to(device)
         
         train_dataset = GlobalSkillDataset(
@@ -385,23 +403,29 @@ def main():
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn_similarity)
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn_similarity)
 
+        scheduler = None
+        if args.scheduler == "cosine":
+            logger.info("Using CosineAnnealingLR scheduler.")
+            scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs * len(train_loader))
+
         # We want to fine-tune the encoder, so we pass model.parameters()
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
         
         logger.info(f"Training Skill Retrieval Model. Num params: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
         
-        train_skill_retrieval(model, train_loader, val_loader, optimizer, None, args)
+        train_skill_retrieval(model, train_loader, val_loader, optimizer, scheduler, args)
 
 
     elif args.task == "train_category":
         # We are FREEZING the encoder and training the head.
         encoder = SentenceTransformer(args.encoder_ckpt).to(device)
+
+        if args.hidden_dim is None:
+            logger.info("hidden_dim not set. Inferring from encoder...")
+            args.hidden_dim = encoder.get_sentence_embedding_dimension()
+            logger.info(f"Inferred hidden_dim: {args.hidden_dim}")
         
-        # This wrapper uses the .encode() function, which detaches from the graph.
-        # This is correct for a "frozen" encoder setup.
-        encoder_wrapper = TextEncoderWrapper(
-            lambda texts: encoder.encode(texts, convert_to_tensor=True, device=device)
-        )
+        encoder_wrapper = TextEncoderWrapper(encoder)
         
         train_dataset = CategoryDataset(
             esco_df=esco_df,
@@ -423,28 +447,24 @@ def main():
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
+        pos_weight = calculate_pos_weights(train_dataset, device)
+
         model = CategoryPredictor(
             encoder=encoder_wrapper,
             hidden_dim=args.hidden_dim,
             num_categories=train_dataset.num_classes(),
         ).to(device)
 
+        scheduler = None
+        if args.scheduler == "cosine":
+            logger.info("Using CosineAnnealingLR scheduler.")
+            scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs * len(train_loader))
         # We *only* pass the classifier head's parameters to the optimizer
         optimizer = torch.optim.AdamW(model.classifier.parameters(), lr=args.lr)
         
         logger.info(f"Training Category Predictor. Num trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
         
-        train_classifier(model, train_loader, val_loader, optimizer, None, args)
-
-    # --- Setup Optimizer & Scheduler ---
-    # Note: I've moved optimizer creation into the task blocks,
-    # because they have different parameters to optimize.
-    # We can add the scheduler logic back here if needed.
-    scheduler = None
-    if args.scheduler == "cosine":
-        # This will apply to whichever optimizer was created
-        scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs * len(train_loader))
-
+        train_classifier(model, train_loader, val_loader, optimizer, scheduler, args, pos_weight=pos_weight)
 
     # --- Save Final Model ---
     ckpt_path = Path(args.out_dir) / f"{run_name}.pt"

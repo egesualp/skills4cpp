@@ -1,0 +1,22 @@
+# Example model list for testing
+# One model per line, lines starting with # are ignored
+
+# Popular general-purpose models
+all-MiniLM-L6-v2
+all-MiniLM-L12-v2
+all-mpnet-base-v2
+
+# Paraphrase models
+paraphrase-MiniLM-L6-v2
+paraphrase-albert-small-v2
+
+# Multilingual models
+distiluse-base-multilingual-cased
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+
+# Larger models (may take longer to load)
+sentence-transformers/all-roberta-large-v1
+
+# Domain-specific models (uncomment to test)
+# sentence-transformers/msmarco-distilbert-base-v4
+# sentence-transformers/multi-qa-MiniLM-L6-cos-v1
