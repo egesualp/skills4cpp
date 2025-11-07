@@ -68,6 +68,7 @@ def parse_args():
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--logging_steps", type=int, default=50)
+    parser.add_argument("--save", type=str, default=None)
     
     # For now, we'll keep evaluation to every epoch
     # parser.add_argument("--eval_strategy", type=str, default="epoch")
@@ -186,7 +187,7 @@ def calculate_pos_weights(dataset: CategoryDataset, device: torch.device) -> tor
     logger.info("Calculating positive weights for class imbalance...")
     
     # Stack all target vectors from the dataset
-    all_targets = torch.stack([s['y'] for s in dataset.samples])
+    all_targets = torch.stack([s['target_vec'] for s in dataset.samples])
     num_samples = len(all_targets)
     
     # Count positive occurrences (class frequency) for each class
@@ -403,13 +404,13 @@ def main():
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn_similarity)
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn_similarity)
 
+        # We want to fine-tune the encoder, so we pass model.parameters()
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+
         scheduler = None
         if args.scheduler == "cosine":
             logger.info("Using CosineAnnealingLR scheduler.")
             scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs * len(train_loader))
-
-        # We want to fine-tune the encoder, so we pass model.parameters()
-        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
         
         logger.info(f"Training Skill Retrieval Model. Num params: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
         
@@ -455,12 +456,14 @@ def main():
             num_categories=train_dataset.num_classes(),
         ).to(device)
 
+        optimizer = torch.optim.AdamW(model.classifier.parameters(), lr=args.lr)
+
         scheduler = None
         if args.scheduler == "cosine":
             logger.info("Using CosineAnnealingLR scheduler.")
             scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs * len(train_loader))
         # We *only* pass the classifier head's parameters to the optimizer
-        optimizer = torch.optim.AdamW(model.classifier.parameters(), lr=args.lr)
+        
         
         logger.info(f"Training Category Predictor. Num trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
         
@@ -469,7 +472,10 @@ def main():
     # --- Save Final Model ---
     ckpt_path = Path(args.out_dir) / f"{run_name}.pt"
     # Save the *entire* model (encoder + head or just head)
-    torch.save(model.state_dict(), ckpt_path)
+    if args.save == 'head':
+        torch.save(model.classifier.state_dict(), ckpt_path)
+    else:
+        torch.save(model.state_dict(), ckpt_path)
     logger.success(f"Model saved at {ckpt_path}")
 
     if args.wandb:

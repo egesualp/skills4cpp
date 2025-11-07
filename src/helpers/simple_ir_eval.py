@@ -17,11 +17,12 @@ from datetime import datetime
 
 
 # ==================== Configuration ====================
-RUN_NAME = "decorte_test_techwolf"
-PAIRS_PATH = "data/title_pairs/decorte_test_pairs.csv"  # Columns: raw_title, esco_title, esco_id
-ESCO_PATH = "data/occupations_en_expanded.csv"           # Columns: conceptUri, preferredLabel
+RUN_NAME = "decorte_test_lean"
+CORPUS_PATH = "data/talent_clef/TaskA/validation/english/corpus_elements"
+QUERIES_PATH = "data/talent_clef/TaskA/validation/english/queries"  
+QRELS_PATH = "data/talent_clef/TaskA/validation/english/qrels.tsv"
 MODEL_ID =  "pj-mathematician/JobGTE-7b-Lora"    # Can use any sentence-transformer model
-DEVICE = "cuda"                                          # or "cpu"
+DEVICE = "cpu"                                          # or "cpu"
 TOP_K = 10                                               # Top-K for metrics
 RESULTS_FILE = "results/ir_eval_results.csv"             # Results will be appended here
 
@@ -79,9 +80,17 @@ class MetricsCapturingEvaluator(InformationRetrievalEvaluator):
             scores_matrix = torch.mm(query_embeddings, corpus_embeddings.T).cpu().numpy()
 
             # Format scores as dict using IDs from parent class
+            # Note: compute_metrics expects integer keys for query IDs and list of dict values
             scores = {}
             for i, qid in enumerate(self.queries_ids):
-                scores[qid] = {self.corpus_ids[j]: float(scores_matrix[i, j]) for j in range(len(self.corpus_ids))}
+                # Convert query ID to integer for compute_metrics compatibility
+                query_idx = int(qid) if qid.isdigit() else i
+                # Format as list of dicts with corpus_id and score keys (expected by compute_metrics)
+                scores[query_idx] = [
+                    {"corpus_id": self.corpus_ids[j], "score": float(scores_matrix[i, j])} 
+                    for j in range(len(self.corpus_ids))
+                ]
+
 
             # Compute metrics
             self.captured_metrics = self.compute_metrics(scores)
@@ -89,7 +98,10 @@ class MetricsCapturingEvaluator(InformationRetrievalEvaluator):
             # Print results
             print(f"\n{self.name} Results:")
             for key, value in sorted(self.captured_metrics.items()):
-                print(f"  {key}: {value:.4f}")
+                if isinstance(value, (int, float)):
+                    print(f"  {key}: {value:.4f}")
+                else:
+                    print(f"  {key}: {value}")
 
             return self.captured_metrics.get('map@100', 0.0)
 
@@ -178,39 +190,60 @@ def main():
     # ==================== Load Data ====================
     print(f"\n[1/4] Loading data...")
     
-    # Load pairs (job titles and their gold ESCO IDs)
-    pairs_df = pd.read_csv(PAIRS_PATH)
-    job_titles = pairs_df["raw_title"].astype(str).tolist()
-    gold_esco_ids = pairs_df["esco_id"].astype(str).tolist()
-    print(f"  ✓ Loaded {len(job_titles)} job title pairs")
+    # Load queries
+    queries_df = pd.read_csv(QUERIES_PATH, sep='\t')
+    print(f"  ✓ Loaded {len(queries_df)} queries")
     
-    # Load ESCO corpus (all possible ESCO titles)
-    esco_df = pd.read_csv(ESCO_PATH)
-    esco_df = esco_df.rename(columns={"preferredLabel": "esco_title", "conceptUri": "esco_id"})
+    # Load corpus
+    corpus_df = pd.read_csv(CORPUS_PATH, sep='\t')
+    print(f"  ✓ Loaded {len(corpus_df)} corpus elements")
     
-    # Remove duplicates (keep first occurrence)
-    esco_df = esco_df.drop_duplicates(subset=["esco_id"], keep="first")
-    
-    esco_ids = esco_df["esco_id"].astype(str).tolist()
-    esco_titles = esco_df["esco_title"].astype(str).tolist()
-    print(f"  ✓ Loaded {len(esco_ids)} unique ESCO titles")
+    # Load relevance judgments
+    qrels_df = pd.read_csv(QRELS_PATH, sep='\t', header=None, 
+                          names=['q_id', 'iter', 'c_id', 'relevance'])
+    print(f"  ✓ Loaded {len(qrels_df)} relevance judgments")
     
     # ==================== Prepare Data for Evaluator ====================
     print(f"\n[2/4] Preparing data for InformationRetrievalEvaluator...")
     
-    # Format as dictionaries required by InformationRetrievalEvaluator
-    # queries: {query_id: query_text}
-    queries = {str(i): job_title for i, job_title in enumerate(job_titles)}
+    # Create ID mappings to ensure consecutive IDs starting from 0
+    # InformationRetrievalEvaluator expects query IDs to be consecutive integers (as strings)
+    unique_query_ids = sorted(queries_df['q_id'].unique())
+    query_id_mapping = {orig_id: i for i, orig_id in enumerate(unique_query_ids)}
     
-    # corpus: {corpus_id: corpus_text}
-    corpus = {esco_id: esco_title for esco_id, esco_title in zip(esco_ids, esco_titles)}
+    print(f"  ✓ Query ID mapping: {len(query_id_mapping)} queries ({min(unique_query_ids)} → {max(unique_query_ids)})")
+    
+    # Format as dictionaries required by InformationRetrievalEvaluator
+    # queries: {query_id: query_text} - using integer keys as strings
+    queries = {str(query_id_mapping[row['q_id']]): str(row['jobtitle']) 
+              for _, row in queries_df.iterrows()}
+    
+    # corpus: {corpus_id: corpus_text}  
+    corpus = {str(row['c_id']): str(row['jobtitle']) 
+             for _, row in corpus_df.iterrows()}
     
     # relevant_docs: {query_id: set of relevant corpus_ids}
-    relevant_docs = {str(i): {gold_id} for i, gold_id in enumerate(gold_esco_ids)}
+    # Group by query_id and collect all relevant corpus_ids using mapped IDs
+    relevant_docs = {}
+    for _, row in qrels_df.iterrows():
+        orig_q_id = row['q_id']
+        mapped_q_id = query_id_mapping.get(orig_q_id)
+        c_id = str(row['c_id'])
+        relevance = row['relevance']
+        
+        # Only include relevant documents (relevance > 0) and valid query IDs
+        if relevance > 0 and mapped_q_id is not None:
+            mapped_q_id_str = str(mapped_q_id)
+            if mapped_q_id_str not in relevant_docs:
+                relevant_docs[mapped_q_id_str] = set()
+            relevant_docs[mapped_q_id_str].add(c_id)
     
     print(f"  ✓ Queries: {len(queries)}")
     print(f"  ✓ Corpus: {len(corpus)}")
     print(f"  ✓ Relevant docs: {len(relevant_docs)}")
+    print(f"  ✓ Sample query IDs: {list(queries.keys())[:5]}")
+    print(f"  ✓ Sample corpus IDs: {list(corpus.keys())[:5]}")
+    print(f"  ✓ Sample relevant docs: {list(relevant_docs.keys())[:5]}")
     
     # ==================== Load Model ====================
     print(f"\n[3/4] Loading model: {MODEL_ID}")
@@ -225,7 +258,7 @@ def main():
         queries=queries,
         corpus=corpus,
         relevant_docs=relevant_docs,
-        name="decorte_techwolf",
+        name="decorte_test_lean",
         show_progress_bar=True,
         batch_size=128,
     )
@@ -248,8 +281,8 @@ def main():
     save_results(
         run_name=RUN_NAME,
         model_id=MODEL_ID,
-        pairs_path=PAIRS_PATH,
-        esco_path=ESCO_PATH,
+        pairs_path=f"{QUERIES_PATH}+{CORPUS_PATH}+{QRELS_PATH}",  # Combined path info
+        esco_path="N/A",  # Not applicable for this format
         metrics=ir_evaluator.captured_metrics,
         num_queries=len(queries),
         num_corpus=len(corpus),

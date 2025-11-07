@@ -32,9 +32,7 @@ def load_category_model(
     logger.info(f"Loading CategoryPredictor from {ckpt_path}...")
     
     # Create the wrapper for the *frozen* base encoder
-    encoder_wrapper = TextEncoderWrapper(
-        lambda texts: base_encoder.encode(texts, convert_to_tensor=True, device=device)
-    )
+    encoder_wrapper = TextEncoderWrapper(base_encoder)
 
     model = CategoryPredictor(
         encoder=encoder_wrapper,
@@ -44,7 +42,7 @@ def load_category_model(
 
     # Load the saved state_dict (this is just the classifier head)
     state = torch.load(ckpt_path, map_location=device)
-    model.load_state_dict(state)
+    model.classifier.load_state_dict(state)
     model.eval()
     logger.success("CategoryPredictor loaded.")
     return model

@@ -1,0 +1,83 @@
+{
+  "test_timestamp": "2025-11-05T00:42:32.055827",
+  "successful_models": [
+    {
+      "model_name": "all-MiniLM-L6-v2",
+      "success": true,
+      "error": null,
+      "load_time": 2.061044216156006,
+      "encoding_time": 0.2855110168457031,
+      "model_info": {
+        "max_seq_length": 256,
+        "device": "cpu",
+        "embedding_dimension": 384
+      },
+      "test_details": {
+        "embedding_shape": [
+          4,
+          384
+        ],
+        "embedding_dtype": "float32",
+        "sample_similarity": 0.28886112570762634,
+        "single_encoding_shape": [
+          384
+        ]
+      }
+    },
+    {
+      "model_name": "paraphrase-MiniLM-L6-v2",
+      "success": true,
+      "error": null,
+      "load_time": 1.6135387420654297,
+      "encoding_time": 0.17026329040527344,
+      "model_info": {
+        "max_seq_length": 128,
+        "device": "cpu",
+        "embedding_dimension": 384
+      },
+      "test_details": {
+        "embedding_shape": [
+          4,
+          384
+        ],
+        "embedding_dtype": "float32",
+        "sample_similarity": 0.3899509906768799,
+        "single_encoding_shape": [
+          384
+        ]
+      }
+    },
+    {
+      "model_name": "all-mpnet-base-v2",
+      "success": true,
+      "error": null,
+      "load_time": 1.7453298568725586,
+      "encoding_time": 0.7064025402069092,
+      "model_info": {
+        "max_seq_length": 384,
+        "device": "cpu",
+        "embedding_dimension": 768
+      },
+      "test_details": {
+        "embedding_shape": [
+          4,
+          768
+        ],
+        "embedding_dtype": "float32",
+        "sample_similarity": 0.2949565351009369,
+        "single_encoding_shape": [
+          768
+        ]
+      }
+    }
+  ],
+  "failed_models": [],
+  "test_summary": {
+    "total_models_tested": 3,
+    "successful_models": 3,
+    "failed_models": 0,
+    "success_rate": 1.0,
+    "average_load_time": 1.8066376050313313,
+    "average_encoding_time": 0.3873922824859619
+  }
+}

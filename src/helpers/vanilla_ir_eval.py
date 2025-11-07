@@ -24,10 +24,10 @@ from sentence_transformers.evaluation import InformationRetrievalEvaluator
 #CORPUS_PATH = "data/talent_clef/TaskA/validation/english/corpus_elements"
 #QRELS_PATH = "data/talent_clef/TaskA/validation/english/qrels.tsv"
 
-QUERIES_PATH = "data/ir_format/decorte_test_lean/queries"
-CORPUS_PATH = "data/ir_format/decorte_test_lean/corpus_elements"
-QRELS_PATH = "data/ir_format/decorte_test_lean/qrels.tsv"
-MODEL_ID = "TechWolf/JobBERT-v2"  # Using a standard model for this simple script
+CORPUS_PATH = "data/talent_clef/TaskA/validation/english/corpus_elements"
+QUERIES_PATH = "data/talent_clef/TaskA/validation/english/queries"  
+QRELS_PATH = "data/talent_clef/TaskA/validation/english/qrels.tsv"
+MODEL_ID =  "pj-mathematician/JobGTE-7b-Lora"    # Can use any sentence-transformer model
 DEVICE = "cuda"                                      # or "cpu"
 
 

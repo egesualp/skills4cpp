@@ -2,20 +2,30 @@
 # One model per line, lines starting with # are ignored
 
 # Popular general-purpose models
-all-MiniLM-L6-v2
-all-MiniLM-L12-v2
-all-mpnet-base-v2
+# all-MiniLM-L6-v2
+# all-MiniLM-L12-v2
+# all-mpnet-base-v2
+
+# TalentCLEF all
+pj-mathematician/JobBGE-small-en-v1.5
+pj-mathematician/JobBGE-m3
+pj-mathematician/JobGTE-multilingual-base-pruned
+pj-mathematician/JobSkillBGE-large-en-v1.5
+pj-mathematician/JobSkillBGE-large-en-v1.5-v2
+pj-mathematician/JobSkillGTE-7b-lora
+TechWolf/JobBERT-v2
+TechWolf/JobBERT-v3
 
 # Paraphrase models
-paraphrase-MiniLM-L6-v2
-paraphrase-albert-small-v2
+# paraphrase-MiniLM-L6-v2
+# paraphrase-albert-small-v2
 
 # Multilingual models
-distiluse-base-multilingual-cased
-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+# distiluse-base-multilingual-cased
+# sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 
 # Larger models (may take longer to load)
-sentence-transformers/all-roberta-large-v1
+# sentence-transformers/all-roberta-large-v1
 
 # Domain-specific models (uncomment to test)
 # sentence-transformers/msmarco-distilbert-base-v4

@@ -15,7 +15,8 @@ from tqdm import tqdm
 
 # Import our custom components
 from skill_mapping.v1.data import HIER_COL_MAP, build_job_text, build_skill_text, build_skill_lookups
-from skill_mapping.v1.indexing import load_category_model, merge_hybrid_scores
+from skill_mapping.v1.model import build_encoder
+from skill_mapping.v1.indexing import load_category_model, merge_hybrid_scores, predict_categories, retrieve_skills
 from skill_mapping.v1.utils import normalize_embeddings, set_seed
 
 def parse_args():
@@ -260,7 +261,7 @@ def main(args):
     ground_truth_map, job_texts_to_run = load_ground_truth(job_df, esco_df, args)
 
     # --- 3. Load Step 1: Category Model ---
-    base_encoder = SentenceTransformer(args.base_encoder_ckpt, device=device)
+    base_encoder = build_encoder(args.base_encoder_ckpt, device=device)
 
     if args.hidden_dim is None:
         logger.info(f"hidden_dim not set. Inferring from {args.base_encoder_ckpt}...")
@@ -276,7 +277,8 @@ def main(args):
     )
 
     # --- 4. Load Step 2: Skill SOTA Model & Build FAISS Index ---
-    skill_encoder = SentenceTransformer(args.skill_encoder_ckpt, device=device)
+    logger.info(f"Loading SOTA skill encoder: {args.skill_encoder_ckpt}")
+    skill_encoder = build_encoder(args.skill_encoder_ckpt, device=device)
     faiss_index, faiss_id_to_label_map = build_faiss_index(
         skill_encoder=skill_encoder,
         all_skill_labels=all_skill_labels,

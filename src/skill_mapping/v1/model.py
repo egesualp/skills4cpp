@@ -1,23 +1,83 @@
-# model.py
-
 import torch
 import torch.nn as nn
 from torch.nn.functional import cosine_similarity, binary_cross_entropy_with_logits
-from typing import List, Dict, Callable, Tuple, Optional
-from sentence_transformers import SentenceTransformer
+from typing import List, Dict, Callable, Tuple
+from sentence_transformers import SentenceTransformer, models # <-- 1. ADD 'models'
+from loguru import logger
 
 # -----------------------------
-# 1. Reusable Components
+# 1. NEW: Encoder Factory Function
+# -----------------------------
+
+def build_encoder(encoder_name_or_path: str, device: str = "cpu") -> SentenceTransformer:
+    """
+    Factory function to load a SentenceTransformer.
+    
+    It first attempts the standard, direct loading method.
+    If that fails, it falls back to a more explicit, manual assembly method.
+    If both fail, it raises the final error.
+    """
+    
+    # --- 1. Try the standard loading method first ---
+    try:
+        logger.info(f"Attempting standard load for: {encoder_name_or_path}")
+        return SentenceTransformer(encoder_name_or_path, device=device, trust_remote_code=True) # fix 1
+    
+    except Exception as e_standard:
+        logger.warning(
+            f"Standard loading failed for {encoder_name_or_path} with error: {e_standard}. "
+            f"Falling back to manual assembly..."
+        )
+        
+        # --- 2. Fallback: Try the explicit manual assembly method ---
+        try:
+            logger.info(f"Attempting manual assembly for: {encoder_name_or_path}")
+            
+            # These args are common for BGE-style models
+            config_args = {
+                "model_type": "bert",
+                "trust_remote_code": True
+            }
+            model_args = {
+                "trust_remote_code": True
+            }
+
+            word_embedding_model = models.Transformer(
+                encoder_name_or_path, 
+                model_args=model_args,
+                config_args=config_args # fix 2
+            )
+
+            pooling_model = models.Pooling(
+                word_embedding_model.get_word_embedding_dimension(),
+                pooling_mode='cls'
+            )
+
+            normalize_model = models.Normalize()
+
+            return SentenceTransformer(
+                modules=[word_embedding_model, pooling_model, normalize_model],
+                device=device
+            )
+            
+        except Exception as e_manual:
+            # --- 3. If both methods fail, break ---
+            logger.error(
+                f"Manual assembly also failed for {encoder_name_or_path} with error: {e_manual}. "
+                f"Both loading methods failed."
+            )
+            # Re-raise the most recent exception, as it's the one from the
+            # failed fallback attempt.
+            raise e_manual
+
+# -----------------------------
+# 2. Reusable Components
 # -----------------------------
 
 class TextEncoderWrapper(nn.Module):
     """
     A proper nn.Module wrapper for a SentenceTransformer model
     that enables fine-tuning.
-    
-    Instead of wrapping the .encode() function (which detaches gradients),
-    this class holds the model itself and performs the tokenization
-    and forward pass manually.
     """
     def __init__(self, sbert_model: SentenceTransformer):
         super().__init__()
@@ -27,89 +87,58 @@ class TextEncoderWrapper(nn.Module):
     def forward(self, text_batch: List[str]) -> torch.Tensor:
         """
         Performs a gradient-tracking forward pass.
-        
-        Args:
-            text_batch: A list of raw strings (length B).
-        Returns:
-            A [B, D] tensor of embeddings.
         """
-        # 1. Tokenize the batch of texts
         features = self.sbert_model.tokenize(text_batch)
-        
-        # 2. Move token tensors to the same device as the model
-        #    (Assumes sbert_model has been moved, e.g., .to(device))
         for k, v in features.items():
             features[k] = v.to(self.sbert_model.device)
             
-        # 3. Perform the model's forward pass
-        #    This returns a dictionary, and we extract the embedding
         output = self.sbert_model(features)
-        
         return output['sentence_embedding']
 
 class MultiLabelClassifierHead(nn.Module):
     """
     A simple linear classification head for multi-label prediction.
-    Takes embeddings [B, D] and outputs logits [B, C].
     """
     def __init__(self, input_dim: int, num_labels: int):
         super().__init__()
         self.fc = nn.Linear(input_dim, num_labels)
 
     def forward(self, embeddings: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            embeddings: [B, D]
-        Returns:
-            logits: [B, C]
-        """
-        # Clone the embeddings to create a normal tensor that can be used in autograd
-        # This is needed when embeddings come from inference mode (e.g., SentenceTransformer.encode)
-        if not embeddings.requires_grad:
-            embeddings = embeddings.clone().detach().requires_grad_(True)
         return self.fc(embeddings)
 
 # -----------------------------
-# 2. Architecture 1 (Smarter Hybrid) - Model Components
+# 3. Model Architectures
 # -----------------------------
 
 class CategoryPredictor(nn.Module):
     """
     This is the **Step 1 Model**.
-    
-    Task: job_text -> multi-label category prediction.
-    Architecture: Encoder + Classifier Head
     """
     def __init__(self, encoder: TextEncoderWrapper, hidden_dim: int, num_categories: int):
         super().__init__()
         self.encoder = encoder
         self.classifier = MultiLabelClassifierHead(hidden_dim, num_categories)
 
+    # ... (forward, compute_loss, predict_proba are unchanged) ...
+    def compute_loss(
+        self, 
+        logits: torch.Tensor, 
+        targets: torch.Tensor, 
+        pos_weight: torch.Tensor = None
+    ) -> torch.Tensor:
+        return binary_cross_entropy_with_logits(
+            logits, 
+            targets, 
+            pos_weight=pos_weight
+        )
+        
     def forward(self, text_batch: List[str]) -> torch.Tensor:
-        """
-        Args:
-            text_batch: A list of raw job texts (length B).
-        Returns:
-            Logits [B, C] where C = num_categories.
-        """
-        emb = self.encoder(text_batch)      # [B, D]
-        logits = self.classifier(emb)       # [B, C]
+        emb = self.encoder(text_batch)
+        logits = self.classifier(emb)
         return logits
-
-    def compute_loss(self, logits: torch.Tensor, targets: torch.Tensor, pos_weight: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """
-        Computes the loss for a batch.
-        Args:
-            logits: [B, C] raw scores from forward()
-            targets: [B, C] multi-hot {0,1} labels
-        """
-        return binary_cross_entropy_with_logits(logits, targets, pos_weight=pos_weight)
-
+    
     @torch.no_grad()
     def predict_proba(self, text_batch: List[str]) -> torch.Tensor:
-        """
-        Returns probabilities [B, C] for inference.
-        """
         self.eval()
         logits = self.forward(text_batch)
         self.train()
@@ -119,13 +148,9 @@ class CategoryPredictor(nn.Module):
 class SkillSimilarityModel(nn.Module):
     """
     This is the **Step 2 Model**.
-    
-    Task: Learn a shared embedding space for jobs and skills.
-    Architecture: Bi-Encoder (a single, shared encoder).
     """
     def __init__(self, encoder: TextEncoderWrapper):
         super().__init__()
-        # A bi-encoder uses *one* encoder for both inputs
         self.encoder = encoder
 
     def forward(self, job_texts: List[str], skill_texts: List[str]) -> Tuple[torch.Tensor, torch.Tensor]:

@@ -1,0 +1,9 @@
+python -m src.skill_mapping.v1.run_inference \
+    --job_data_path="data/title_pairs_desc/decorte_train_pairs.csv" \
+    --cat_model_ckpt="models/step1_cat_L1_decorte_weighted.pt" \
+    --base_encoder_ckpt="all-MiniLM-L6-v2" \
+    --skill_encoder_ckpt="pj-mathematician/JobSkillBGE-large-en-v1.5" \
+    --hier_level=1 \
+    --text_fields="title+desc" \
+    --out_dir="results/" \
+    --device="cuda"
