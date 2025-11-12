@@ -20,7 +20,7 @@ from collections import defaultdict
 # ==== CONFIG ====
 PATH_ESCO = Path("data/esco_datasets")
 PATH_PROCESSED = Path("data/processed")
-PATH_OUT = Path("data/processed/master_datasets")
+PATH_OUT = Path("data/processed/master_datasets_2")
 LANG = "en"
 
 PILLAR_NAMES = {
@@ -341,9 +341,12 @@ def build_graph_datasets(data):
     return all_nodes, all_edges
 
 def build_complete_hierarchy_table(data):
-    """Build complete skill hierarchy table with Level 0-3 and individual skills in one table."""
+    """
+    Build complete skill hierarchy table with all possible paths.
+    Traces parentage through both SkillGroups and KnowledgeSkillCompetences.
+    """
     print("\n" + "="*80)
-    print("Building Complete Skill Hierarchy Table (All Levels)...")
+    print("Building Complete Skill Hierarchy Table (All Paths)...")
     print("="*80)
     
     skills = data['skills']
@@ -357,36 +360,47 @@ def build_complete_hierarchy_table(data):
     
     print(f"  ✓ Identified {len(pillar_ids)} pillars")
     
-    # Build group to parent mapping
-    group2parents = {}
-    group_edges = broader_relations[broader_relations['conceptType'] == 'SkillGroup']
-    for _, row in group_edges.iterrows():
-        gid = row['conceptUri']
-        parent = row['broaderUri']
-        if gid not in group2parents:
-            group2parents[gid] = []
-        group2parents[gid].append(parent)
-    
-    # Build skill to groups mapping
-    skill2groups = {}
+    # === FIX 1: Create a Universal Parent Map ===
+    # Build ALL to parent mapping (traces both skills and groups)
+    print("  ✓ Building universal parent map...")
+    all_concept_parents = {}
+    # Use all broader relations
+    for _, row in broader_relations.iterrows():
+        concept_uri = row['conceptUri']
+        parent_uri = row['broaderUri']
+        if concept_uri not in all_concept_parents:
+            all_concept_parents[concept_uri] = []
+        all_concept_parents[concept_uri].append(parent_uri)
+    # Modified to use all broaderRelations, not just SkillGroup
+
+    # === FIX 2: Create a Universal Label Map ===
+    # Get ALL labels (for both skills and groups)
+    print("  ✓ Building universal label map...")
+    all_labels = pd.concat([
+        skill_groups[['conceptUri', 'preferredLabel']],
+        skills[['conceptUri', 'preferredLabel']]
+    ]).drop_duplicates(subset=['conceptUri'])
+    all_labels_dict = dict(zip(all_labels['conceptUri'], all_labels['preferredLabel']))
+    # Combines skill and group labels
+
+    # Build skill to immediate parents mapping (now includes skill-to-skill)
+    skill2parents = {}
     skill_edges = broader_relations[broader_relations['conceptType'] == 'KnowledgeSkillCompetence']
     for _, row in skill_edges.iterrows():
         sid = row['conceptUri']
-        gid = row['broaderUri']
-        if sid not in skill2groups:
-            skill2groups[sid] = []
-        skill2groups[sid].append(gid)
+        gid = row['broaderUri'] # This 'gid' can be a group OR another skill
+        if sid not in skill2parents:
+            skill2parents[sid] = []
+        skill2parents[sid].append(gid)
     
-    # Get group labels
-    group_labels = dict(zip(skill_groups['conceptUri'], skill_groups['preferredLabel']))
     
-    def get_paths_to_pillar(group_id, group2parents, pillar_ids, max_depth=10):
+    def get_paths_to_pillar(concept_id, parent_map, pillar_ids, max_depth=10):
         """
-        Get all paths from a group to pillars using DFS.
-        Returns list of paths, where each path is [group, parent, grandparent, ..., pillar]
+        Get all paths from a concept (skill or group) to pillars using DFS.
+        Returns list of paths, where each path is [concept, parent, grandparent, ..., pillar]
         """
-        if group_id in pillar_ids:
-            return [[group_id]]
+        if concept_id in pillar_ids:
+            return [[concept_id]]
         
         all_paths = []
         
@@ -398,7 +412,8 @@ def build_complete_hierarchy_table(data):
                 all_paths.append(path[:])
                 return
             
-            for parent in group2parents.get(current, []):
+            # === FIX 3: Use the universal parent_map ===
+            for parent in parent_map.get(current, []):
                 if parent not in visited:
                     visited.add(parent)
                     path.append(parent)
@@ -406,11 +421,12 @@ def build_complete_hierarchy_table(data):
                     path.pop()
                     visited.remove(parent)
         
-        visited = {group_id}
-        dfs(group_id, [group_id], visited)
+        visited = {concept_id}
+        dfs(concept_id, [concept_id], visited)
         
         return all_paths
-    
+    # Modified to use generic 'parent_map'
+
     # Build the complete hierarchy table
     print("  ✓ Building hierarchy paths for all skills...")
     rows = []
@@ -425,98 +441,122 @@ def build_complete_hierarchy_table(data):
         definition = skill_row.get('definition', None)
         status = skill_row.get('status', None)
         
-        # Get immediate parent groups
-        groups = skill2groups.get(skill_uri, [])
+        # Get immediate parent concepts (groups or other skills)
+        parents = skill2parents.get(skill_uri, [])
         
-        if not groups:
+        base_row_data = {
+            'skillUri': skill_uri,
+            'skillLabel': skill_label,
+            'skillType': skill_type,
+            'skillAltLabels': skill_alt_labels,
+            'reuseLevel': reuse_level,
+            'status': status,
+            'description': description,
+            'definition': definition,
+        }
+        
+        if not parents:
             # Orphan skill - no hierarchy
-            rows.append({
-                'skillUri': skill_uri,
-                'skillLabel': skill_label,
-                'skillType': skill_type,
-                'skillAltLabels': skill_alt_labels,
-                'reuseLevel': reuse_level,
-                'status': status,
-                'description': description,
-                'definition': definition,
-                'level0_uri': None,
-                'level0_label': None,
-                'level1_uri': None,
-                'level1_label': None,
-                'level2_uri': None,
-                'level2_label': None,
-                'level3_uri': None,
-                'level3_label': None,
+            row = base_row_data.copy()
+            row.update({
+                'pillar_uri': None,
+                'pillar_label': None,
+                'parent_uri': None,
+                'parent_label': None,
+                'full_path_uris': None,
+                'full_path_labels': None,
             })
+            rows.append(row)
             continue
         
-        # For each immediate parent group, get all paths to pillars
-        for group in groups:
-            paths = get_paths_to_pillar(group, group2parents, pillar_ids)
+        # For each immediate parent, get all paths to pillars
+        found_paths_for_skill = False
+        for parent_concept in parents:
+            # === FIX 3 (continued): Use the universal parent map ===
+            paths = get_paths_to_pillar(parent_concept, all_concept_parents, pillar_ids)
             
             if not paths:
-                # Group has no path to pillar
-                rows.append({
-                    'skillUri': skill_uri,
-                    'skillLabel': skill_label,
-                    'skillType': skill_type,
-                    'skillAltLabels': skill_alt_labels,
-                    'reuseLevel': reuse_level,
-                    'status': status,
-                    'description': description,
-                    'definition': definition,
-                    'level0_uri': None,
-                    'level0_label': None,
-                    'level1_uri': None,
-                    'level1_label': None,
-                    'level2_uri': None,
-                    'level2_label': None,
-                    'level3_uri': group,
-                    'level3_label': group_labels.get(group),
+                # Parent concept has no path to pillar (e.g., row 2618 case)
+                row = base_row_data.copy()
+                row.update({
+                    'pillar_uri': None,
+                    'pillar_label': None,
+                    # === FIX 4: Use universal label map ===
+                    'parent_uri': parent_concept,
+                    'parent_label': all_labels_dict.get(parent_concept),
+                    'full_path_uris': parent_concept,
+                    'full_path_labels': all_labels_dict.get(parent_concept),
                 })
+                rows.append(row)
+                found_paths_for_skill = True
                 continue
             
+            found_paths_for_skill = True
             # Create a row for each path (handles multiple paths)
             for path in paths:
-                # Path is [immediate_group, parent, ..., pillar]
-                # Reverse it to get [pillar, ..., parent, immediate_group]
+                # Path is [immediate_parent, parent, ..., pillar]
+                # Reverse it to get [pillar, ..., parent, immediate_parent]
                 reversed_path = path[::-1]
                 
-                # Pad to exactly 4 levels
-                while len(reversed_path) < 4:
-                    reversed_path.append(None)
+                # === FIX 5 & 6: Use new "lean tree" structure ===
                 
-                row = {
-                    'skillUri': skill_uri,
-                    'skillLabel': skill_label,
-                    'skillType': skill_type,
-                    'skillAltLabels': skill_alt_labels,
-                    'reuseLevel': reuse_level,
-                    'status': status,
-                    'description': description,
-                    'definition': definition,
-                }
+                # Get all labels for the path
+                path_labels_list = [all_labels_dict.get(uri) for uri in reversed_path if uri]
+                uri_path_list = [uri for uri in reversed_path if uri]
                 
-                # Assign levels (0=pillar, 1-3=groups)
-                for i in range(4):
-                    uri = reversed_path[i] if i < len(reversed_path) else None
-                    row[f'level{i}_uri'] = uri
-                    row[f'level{i}_label'] = group_labels.get(uri) if uri else None
+                row = base_row_data.copy()
+                row.update({
+                    # 1. Save the Pillar (Top Level)
+                    'pillar_uri': uri_path_list[0] if len(uri_path_list) > 0 else None,
+                    'pillar_label': path_labels_list[0] if len(path_labels_list) > 0 else None,
+                    
+                    # 2. Save the Immediate Parent (Bottom Level)
+                    'parent_uri': uri_path_list[-1] if len(uri_path_list) > 0 else None,
+                    'parent_label': path_labels_list[-1] if len(path_labels_list) > 0 else None,
+
+                    # 3. Save the FULL path as a delimited string
+                    'full_path_uris': ' | '.join(uri_path_list),
+                    'full_path_labels': ' | '.join(path_labels_list),
+
+                    'level1_uri': uri_path_list[1] if len(uri_path_list) > 1 else None,
+                    'level1_label': path_labels_list[1] if len(path_labels_list) > 1 else None,
+                    
+                    'level2_uri': uri_path_list[2] if len(uri_path_list) > 2 else None,
+                    'level2_label': path_labels_list[2] if len(path_labels_list) > 2 else None,
+
+                    'level3_uri': uri_path_list[3] if len(uri_path_list) > 3 else None,
+                    'level3_label': path_labels_list[3] if len(path_labels_list) > 3 else None
+                })
                 
                 rows.append(row)
-    
+        
+        if not found_paths_for_skill:
+             # This handles skills that are in skill2parents but whose parents
+             # somehow failed all path finding (should be rare)
+            row = base_row_data.copy()
+            row.update({
+                'pillar_uri': None,
+                'pillar_label': None,
+                'parent_uri': None,
+                'parent_label': None,
+                'full_path_uris': None,
+                'full_path_labels': None,
+            })
+            rows.append(row)
+
     # Create DataFrame
     df_complete_hierarchy = pd.DataFrame(rows)
     
     print(f"  ✓ Created complete hierarchy table: {df_complete_hierarchy.shape}")
-    print(f"  ✓ Skills with full hierarchy: {df_complete_hierarchy['level0_label'].notna().sum():,}")
-    print(f"  ✓ Orphan skills: {df_complete_hierarchy['level0_label'].isna().sum():,}")
+    print(f"  ✓ Rows with pillar: {df_complete_hierarchy['pillar_label'].notna().sum():,}")
+    print(f"  ✓ Orphan rows (no pillar): {df_complete_hierarchy['pillar_label'].isna().sum():,}")
     
-    # Show level distribution
-    print("\n  Level completeness:")
-    for i in range(4):
-        count = df_complete_hierarchy[f'level{i}_label'].notna().sum()
-        print(f"    - Level {i}: {count:,} rows")
+    # Show path completeness
+    print("\n  Path completeness:")
+    count_pillar = df_complete_hierarchy['pillar_label'].notna().sum()
+    count_parent = df_complete_hierarchy['parent_label'].notna().sum()
+    print(f"    - Rows with pillar: {count_pillar:,}")
+    print(f"    - Rows with parent: {count_parent:,}")
     
     return df_complete_hierarchy
 
@@ -558,7 +598,7 @@ def build_complete_hierarchy_w_occ(data):
     print(f"  ✓ Unique skills: {occupation_hierarchy['skillUri'].nunique():,}")
     print(f"  ✓ Essential relationships: {(occupation_hierarchy['relationType'] == 'essential').sum():,}")
     print(f"  ✓ Optional relationships: {(occupation_hierarchy['relationType'] == 'optional').sum():,}")
-    print(f"  ✓ Records with full hierarchy: {occupation_hierarchy['level0_label'].notna().sum():,}")
+    print(f"  ✓ Records with full hierarchy: {occupation_hierarchy['pillar_label'].notna().sum():,}")
     
     return occupation_hierarchy
 

@@ -17,18 +17,26 @@ import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.models import Router
 from sentence_transformers.evaluation import InformationRetrievalEvaluator
+import ast
 
-
+task = "B"
 # ==================== Configuration ====================
 #QUERIES_PATH = "data/talent_clef/TaskA/validation/english/queries"
 #CORPUS_PATH = "data/talent_clef/TaskA/validation/english/corpus_elements"
 #QRELS_PATH = "data/talent_clef/TaskA/validation/english/qrels.tsv"
 
-CORPUS_PATH = "data/talent_clef/TaskA/validation/english/corpus_elements"
-QUERIES_PATH = "data/talent_clef/TaskA/validation/english/queries"  
-QRELS_PATH = "data/talent_clef/TaskA/validation/english/qrels.tsv"
-MODEL_ID =  "pj-mathematician/JobGTE-7b-Lora"    # Can use any sentence-transformer model
-DEVICE = "cuda"                                      # or "cpu"
+# Task A below
+if task == "A":
+    QUERIES_PATH = "data/talent_clef/TaskA/validation/english/queries"  
+    CORPUS_PATH = "data/talent_clef/TaskA/validation/english/corpus_elements"
+    QRELS_PATH = "data/talent_clef/TaskA/validation/english/qrels.tsv"
+else:
+    CORPUS_PATH = "data/talent_clef/TaskB/validation/corpus_elements"
+    QUERIES_PATH = "data/talent_clef/TaskB/validation/queries"  
+    QRELS_PATH = "data/talent_clef/TaskB/validation/qrels.tsv"
+
+MODEL_ID =  "TechWolf/JobBERT-v2"    # Can use any sentence-transformer model
+DEVICE = "cpu"                                      # or "cpu"
 
 
 def main():
@@ -52,8 +60,25 @@ def main():
     print(f"\n[2/3] Preparing data dictionaries...")
 
     queries = dict(zip(queries_df['q_id'].astype(str), queries_df['jobtitle'].astype(str)))
-    corpus = dict(zip(corpus_df['c_id'].astype(str), corpus_df['jobtitle'].astype(str)))
-    
+    if task == "A":
+        corpus = dict(zip(corpus_df['c_id'].astype(str), corpus_df['jobtitle'].astype(str)))
+    else:
+        print("  > Preprocessing Task B corpus...")
+        # 2. Parse the string representation of the list
+        # This turns "['a', 'b']" into a real list ['a', 'b']
+        try:
+            corpus_df['aliases_list'] = corpus_df['skill_aliases'].apply(ast.literal_eval)
+        except ValueError:
+            print("Error parsing aliases. Make sure 'skill_aliases' column is a string-list.")
+            # Handle error appropriately
+
+        # 3. Join the aliases into a single string, separated by a space
+        corpus_df['skill_document'] = corpus_df['aliases_list'].apply(lambda aliases: " ".join(aliases))
+
+        # 4. Create the corpus dict from the new 'skill_document' column
+        corpus = dict(zip(corpus_df['c_id'].astype(str), corpus_df['skill_document'].astype(str)))
+        print("  ✓ Task B corpus preprocessed (aliases joined).")
+
     relevant_docs = {}
     for _, row in qrels_df.iterrows():
         q_id = str(row['q_id'])
@@ -69,7 +94,9 @@ def main():
     # ==================== 3. Load Model & Run Evaluation ====================
     print(f"\n[3/3] Loading model and running evaluation...")
     print(f"Model ID: {MODEL_ID}")
-    model = SentenceTransformer(MODEL_ID, device=DEVICE)
+    model_raw = SentenceTransformer(MODEL_ID, device=DEVICE)
+
+    model = SentenceTransformer(modules=[model_raw[0], model_raw[1]], device=DEVICE)
 
     # Create the evaluator as shown in the documentation
     ir_evaluator = InformationRetrievalEvaluator(

@@ -13,6 +13,11 @@ from loguru import logger
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
+import time  # NEW: For timing
+import datetime  # NEW: For timestamp
+import csv  # NEW: For CSV logging
+import os  # NEW: For checking file existence
+
 # Import our custom components
 from skill_mapping.v1.data import HIER_COL_MAP, build_job_text, build_skill_text, build_skill_lookups
 from skill_mapping.v1.model import build_encoder
@@ -25,8 +30,8 @@ def parse_args():
     parser.add_argument("--job_data_path", type=str, required=True, 
                         help="Path to the job dataset (e.g., decorte_test.csv)")
     parser.add_argument("--esco_data_path", type=str, 
-                        default="data/processed/master_datasets/master_complete_hierarchy_w_occ.csv")
-    parser.add_argument("--cat_model_ckpt", type=str, required=True, 
+                        default="data/processed/master_datasets_2/master_complete_hierarchy_w_occ.csv")
+    parser.add_argument("--cat_model_ckpt", type=str, 
                         help="Path to your trained CategoryPredictor .pt file")
     parser.add_argument("--out_dir", type=str, default="results/")
 
@@ -37,11 +42,13 @@ def parse_args():
                         help="SOTA Skill Encoder (e.g., from pjmathematician or BGE)")
     
     # --- Model & Pipeline Config ---
-    parser.add_argument("--hier_level", type=int, default=1, 
+    parser.add_argument("--hier_level", type=int, default=None, 
                         help="Hierarchy level (0-3) to use for re-ranking.")
     parser.add_argument("--hidden_dim", type=int, default=None, 
                         help="Hidden dim of the base_encoder. If None, inferred.")  
     parser.add_argument("--text_fields", type=str, default="title+desc")
+    parser.add_argument("--use_expanded_corpus", action="store_true",
+                        help="Expands alternative labels as new rows, then mapped back to canonical label during indexing.")
     parser.add_argument("--is_structured", action="store_true")
 
     # --- Inference Config ---
@@ -83,6 +90,7 @@ def average_precision_at_k(
 def evaluate_predictions(
     all_predictions: Dict[str, List[Tuple[str, float]]],
     ground_truth_map: Dict[str, Set[str]],
+    alt_to_canonical_map: Dict[str, str], # <-- NEW ARGUMENT
     k_list: List[int] = [5, 10, 20]
 ) -> Dict[str, float]:
     """
@@ -93,37 +101,45 @@ def evaluate_predictions(
     metrics.update({f"MAP@{k}": [] for k in k_list})
 
     job_texts = list(all_predictions.keys())
+
+    num_queries_evaluated = 0
     
     for job_text in job_texts:
         actual_labels = ground_truth_map.get(job_text)
-        if not actual_labels or len(actual_labels) == 0:
-            continue # Skip if no ground truth skills
-
-        pred_tuples = all_predictions.get(job_text, [])
-        predicted_labels = [label for label, score in pred_tuples]
+        if not actual_labels or len(actual_labels) == 0: continue
         
+        num_queries_evaluated += 1
+        predicted_scores = all_predictions.get(job_text, [])
         total_relevant = len(actual_labels)
 
-        for k in k_list:
-            top_k_preds = predicted_labels[:k]
-            hits = len(set(top_k_preds) & actual_labels)
+        # --- This is the new normalization logic ---
+        normalized_predicted_labels = []
+        seen_canonical_labels = set()
+        for alt_label, score in predicted_scores:
+            # Map the retrieved label (which could be an alt) back to its canonical form
+            canonical_label = alt_to_canonical_map.get(alt_label, alt_label)
             
-            # Precision@k
-            p_at_k = hits / k
-            metrics[f"P@{k}"].append(p_at_k)
-            
-            # Recall@k
-            r_at_k = hits / total_relevant
-            metrics[f"R@{k}"].append(r_at_k)
-            
-            # MAP@k
-            ap_at_k = average_precision_at_k(predicted_labels, actual_labels, k)
-            metrics[f"MAP@{k}"].append(ap_at_k)
+            # Add to list only if we haven't seen this canonical skill before
+            if canonical_label not in seen_canonical_labels:
+                normalized_predicted_labels.append(canonical_label)
+                seen_canonical_labels.add(canonical_label)
+        # --- End of new logic ---
 
-    # Calculate final mean metrics
-    final_metrics = {key: np.mean(val) for key, val in metrics.items()}
-    final_metrics["num_queries_evaluated"] = len(metrics["P@5"])
-    
+        for k in k_list:
+            # Use the new normalized list for evaluation
+            top_k_preds = normalized_predicted_labels[:k]
+            
+            hits = len(set(top_k_preds) & actual_labels)
+            metrics[f"P@{k}"].append(hits / k)
+            metrics[f"R@{k}"].append(hits / total_relevant)
+            
+            # Pass the full normalized list to MAP@k
+            metrics[f"MAP@{k}"].append(
+                average_precision_at_k(normalized_predicted_labels, actual_labels, k)
+            )
+
+    final_metrics = {key: np.mean(val) if val else 0.0 for key, val in metrics.items()}
+    final_metrics["num_queries_evaluated"] = num_queries_evaluated
     return final_metrics
 
 # -----------------------------
@@ -218,22 +234,101 @@ def build_faiss_index(
     return index, id_to_label_map
 
 # -----------------------------
-# 4. MAIN INFERENCE SCRIPT
+# 4. NEW: CSV LOGGING
+# -----------------------------
+
+def log_results_to_csv(csv_path: Path, run_name: str, duration: float, process: str,
+                       args: argparse.Namespace, metrics: Dict[str, float]):
+    """Appends a single row of results to a master CSV file."""
+    try:
+        # 1. Create the flat dictionary for the row
+        log_row = {}
+        log_row['run_name'] = run_name
+        log_row['timestamp'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        log_row['duration_seconds'] = round(duration, 2)
+        log_row['process'] = process
+        
+        # Add all args
+        log_row.update(vars(args))
+        
+        # Add all metrics
+        log_row.update(metrics)
+        
+        # Sanitize values (e.g., convert Path objects to str, None to empty str)
+        for key, val in log_row.items():
+            if isinstance(val, Path):
+                log_row[key] = str(val)
+            elif val is None:
+                log_row[key] = ""
+        
+        # 2. Get all fieldnames (robustly)
+        current_fieldnames = sorted(log_row.keys())
+        existing_fieldnames = []
+        
+        if csv_path.is_file():
+            with open(csv_path, 'r', newline='', encoding='utf-8') as f_read:
+                reader = csv.reader(f_read)
+                try:
+                    existing_fieldnames = next(reader)
+                except StopIteration:
+                    pass # File is empty
+
+        # Merge headers, adding new ones to the end
+        final_fieldnames = list(existing_fieldnames)
+        for f in current_fieldnames:
+            if f not in final_fieldnames:
+                final_fieldnames.append(f)
+                
+        # 3. Write/Append to the file
+        with open(csv_path, 'a', newline='', encoding='utf-8') as f_write:
+            # Use restval='' to fill in any missing columns from previous runs
+            writer = csv.DictWriter(f_write, fieldnames=final_fieldnames, restval='')
+            
+            if not existing_fieldnames:
+                writer.writeheader() # Write header only if file was new/empty
+                
+            writer.writerow(log_row)
+            
+        logger.success(f"Results successfully appended to {csv_path}")
+        
+    except Exception as e:
+        logger.warning(f"Failed to append results to master CSV log: {e}")
+
+# -----------------------------
+# 5. MAIN INFERENCE SCRIPT
 # -----------------------------
 
 def main(args):
+    start_time = time.time()  # NEW: Start timer
     set_seed(args.seed)
     device = torch.device(args.device)
     
+    # --- NEW NAMING LOGIC ---
+    run_hybrid_mode = args.cat_model_ckpt is not None
+    process = "HYBRID" if run_hybrid_mode else "BASELINE"
+    corpus_flag = "expanded" if args.use_expanded_corpus else "combined"
+    test_data_name = Path(args.job_data_path).stem
+    skill_encoder_name = args.skill_encoder_ckpt.split('/')[-1]
+
     if args.run_name:
         run_name = args.run_name
     else:
-        run_name = (
-            f"results_{Path(args.job_data_path).stem}_"
-            f"{args.skill_encoder_ckpt.split('/')[-1]}_"
-            f"lvl{args.hier_level}"
-        )
-        
+        if run_hybrid_mode:
+            # Get the category model's name from its checkpoint file
+            # e.g., "cat_probe_MiniLM_L1"
+            cat_model_name = Path(args.cat_model_ckpt).stem 
+            run_name = (
+                f"results_{process}_{test_data_name}_"
+                f"{cat_model_name}_reranks_{skill_encoder_name}_"
+                f"{corpus_flag}"
+            )
+        else:
+            # Baseline name is simple
+            run_name = (
+                f"results_{process}_{test_data_name}_"
+                f"{skill_encoder_name}_{corpus_flag}"
+            )
+    # --- END NEW NAMING LOGIC ---
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
     logger.add(Path(args.out_dir) / f"{run_name}.log")
     logger.info(f"Starting run: {run_name}")
@@ -242,39 +337,51 @@ def main(args):
     # --- 1. Load ESCO Data & Lookups ---
     logger.info(f"Loading ESCO master data from {args.esco_data_path}")
     esco_df = pd.read_csv(args.esco_data_path)
-    
-    # Get the category vocabulary for the level we trained on
-    cat_col = HIER_COL_MAP[args.hier_level]
-    all_cat_labels = esco_df[cat_col].dropna().astype(str).unique().tolist()
-    cat_idx2label = {i: label for i, label in enumerate(all_cat_labels)}
+
+    if not run_hybrid_mode:
+        esco_df = esco_df[
+            ['occupationUri', 'skillUri', 'occupationLabel', 'occupationDescription',
+            'skillLabel', 'skillAltLabels', 'description']].drop_duplicates()
+
+
     
     # Get all skill texts, labels, and the skill-to-category map
-    all_skill_labels, all_skill_texts, skill_to_cat_map = build_skill_lookups(
-        esco_df=esco_df,
-        hier_level=args.hier_level,
-        text_fields=args.text_fields,
-        is_structured=args.is_structured
+    # --- MODIFIED: build_skill_lookups now returns 4 items ---
+    all_skill_labels, all_skill_texts, skill_to_cat_map, alt_to_canonical_map = build_skill_lookups(
+        esco_df=esco_df, hier_level=args.hier_level, 
+        text_fields=args.text_fields, is_structured=args.is_structured,
+        use_expanded_corpus=args.use_expanded_corpus # <-- Pass the new arg
     )
+    # --- END MODIFICATION ---
 
     # --- 2. Load Ground Truth Job Data ---
     job_df = pd.read_csv(args.job_data_path)
     ground_truth_map, job_texts_to_run = load_ground_truth(job_df, esco_df, args)
 
     # --- 3. Load Step 1: Category Model ---
-    base_encoder = build_encoder(args.base_encoder_ckpt, device=device)
+    category_model = None
+    if run_hybrid_mode:
+        if args.base_encoder_ckpt is None:
+            logger.error("Must provide --base_encoder_ckpt when running in hybrid mode.")
+            return
+        base_encoder = build_encoder(args.base_encoder_ckpt, device=device)
 
-    if args.hidden_dim is None:
-        logger.info(f"hidden_dim not set. Inferring from {args.base_encoder_ckpt}...")
-        args.hidden_dim = base_encoder.get_sentence_embedding_dimension()
-        logger.info(f"Inferred hidden_dim: {args.hidden_dim}")
+        if args.hidden_dim is None:
+            logger.info(f"hidden_dim not set. Inferring from {args.base_encoder_ckpt}...")
+            args.hidden_dim = base_encoder.get_sentence_embedding_dimension()
+            logger.info(f"Inferred hidden_dim: {args.hidden_dim}")
 
-    category_model = load_category_model(
-        ckpt_path=Path(args.cat_model_ckpt),
-        base_encoder=base_encoder,
-        hidden_dim=args.hidden_dim,
-        categories_idx2str=cat_idx2label,
-        device=device
-    )
+        cat_col = HIER_COL_MAP[args.hier_level]
+        all_cat_labels = esco_df[cat_col].dropna().astype(str).unique().tolist()
+        cat_idx2label = {i: label for i, label in enumerate(all_cat_labels)}
+
+        category_model = load_category_model(
+            ckpt_path=Path(args.cat_model_ckpt),
+            base_encoder=base_encoder,
+            hidden_dim=args.hidden_dim,
+            categories_idx2str=cat_idx2label,
+            device=device
+        )
 
     # --- 4. Load Step 2: Skill SOTA Model & Build FAISS Index ---
     logger.info(f"Loading SOTA skill encoder: {args.skill_encoder_ckpt}")
@@ -288,41 +395,51 @@ def main(args):
 
     # --- 5. Run Hybrid Inference Pipeline ---
     logger.info(f"Running hybrid inference on {len(job_texts_to_run)} job texts...")
-    all_final_predictions = {}
+    all_predictions = {}    
     
     # Process in batches for efficiency
     batch_size = args.batch_size
-    for i in tqdm(range(0, len(job_texts_to_run), batch_size), desc="Hybrid Inference"):
+    desc = "Hybrid Inference" if run_hybrid_mode else "Baseline Inference"
+    for i in tqdm(range(0, len(job_texts_to_run), batch_size), desc=desc):
         batch_job_texts = job_texts_to_run[i : i + batch_size]
         
-        # Step 1: Get category probabilities
-        cat_probs_batch = predict_categories(category_model, batch_job_texts, cat_idx2label)
-        
-        # Step 2: Get global skill similarities
+        # --- Step 1: Always retrieve baseline skills ---
         retrieved_skills_batch = retrieve_skills(
             batch_job_texts, skill_encoder, faiss_index, faiss_id_to_label_map, args.top_k
         )
         
-        # Step 3: Merge them
+        # --- Step 2: Optionally run hybrid re-ranking ---
+        if run_hybrid_mode:
+            cat_probs_batch = predict_categories(category_model, batch_job_texts, cat_idx2label)
+        
         for j, job_text in enumerate(batch_job_texts):
-            ranked_skills = merge_hybrid_scores(
-                category_prob_map=cat_probs_batch[j],
-                retrieved_skills=retrieved_skills_batch[j],
-                skill_to_cat_map=skill_to_cat_map,
-                category_threshold=args.cat_threshold
-            )
-            all_final_predictions[job_text] = ranked_skills
+            if run_hybrid_mode:
+            # Always save the baseline result
+                ranked_skills = merge_hybrid_scores(
+                    category_prob_map=cat_probs_batch[j],
+                    retrieved_skills=retrieved_skills_batch[j],
+                    skill_to_cat_map=skill_to_cat_map,
+                    category_threshold=args.cat_threshold
+                )
+                all_predictions[job_text] = ranked_skills
+            
+            else:
+                all_predictions[job_text] = retrieved_skills_batch[j]
+
 
     # --- 6. Evaluate and Save Results ---
-    logger.info("Evaluating predictions...")
-    k_list_eval = [5, 10, 20, 50]
+    logger.info(f"Evaluating {process} predictions...")
+       
+    
+    k_list_eval = [5, 10, 20, 50, 20000]
     final_metrics = evaluate_predictions(
-        all_predictions=all_final_predictions,
+        all_predictions=all_predictions,
         ground_truth_map=ground_truth_map,
+        alt_to_canonical_map=alt_to_canonical_map,
         k_list=k_list_eval
     )
     
-    logger.success("--- EVALUATION RESULTS ---")
+    logger.success(f"--- {process} EVALUATION RESULTS ---")
     print(json.dumps(final_metrics, indent=2))
     
     # Save predictions and metrics
@@ -332,7 +449,7 @@ def main(args):
     # Convert predictions to a serializable format
     serializable_preds = {
         job: [{"skill": s, "score": r} for s, r in skills] 
-        for job, skills in all_final_predictions.items()
+        for job, skills in all_predictions.items()
     }
     
     with open(out_path_preds, 'w') as f:
@@ -342,6 +459,11 @@ def main(args):
         
     logger.success(f"Saved predictions to {out_path_preds}")
     logger.success(f"Saved metrics to {out_path_metrics}")
+
+    # --- NEW: Append to master CSV log ---
+    duration_seconds = time.time() - start_time
+    csv_path = Path(args.out_dir) / "master_results.csv"
+    log_results_to_csv(csv_path, run_name, duration_seconds, process, args, final_metrics)
 
 
 if __name__ == "__main__":

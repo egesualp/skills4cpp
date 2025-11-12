@@ -12,40 +12,47 @@ from loguru import logger
 def build_encoder(encoder_name_or_path: str, device: str = "cpu") -> SentenceTransformer:
     """
     Factory function to load a SentenceTransformer.
-    
-    It first attempts the standard, direct loading method.
-    If that fails, it falls back to a more explicit, manual assembly method.
-    If both fail, it raises the final error.
     """
     
-    # --- 1. Try the standard loading method first ---
-    try:
-        logger.info(f"Attempting standard load for: {encoder_name_or_path}")
-        return SentenceTransformer(encoder_name_or_path, device=device, trust_remote_code=True) # fix 1
+    # --- NEW: Explicit check for problematic models ---
+    # We know JobBERT will segfault on standard load, so we
+    # *must* skip directly to the manual assembly.
     
-    except Exception as e_standard:
-        logger.warning(
-            f"Standard loading failed for {encoder_name_or_path} with error: {e_standard}. "
-            f"Falling back to manual assembly..."
-        )
+    force_manual_assembly = False
+    if "JobBERT" in encoder_name_or_path:
+        logger.warning(f"Detected 'JobBERT'. Projection heads will be discarded.")
+        try:
+            logger.info(f"Attempting standard load for: {encoder_name_or_path}")
+            return SentenceTransformer(encoder_name_or_path, device=device, trust_remote_code=True)
+        except:
+            logger.warning("An error occured. Forcing manuel assembly to prevent segfault.")
+            force_manual_assembly = True
+    
+    # --- 1. Try the standard loading method first ---
+    if not force_manual_assembly:
+        try:
+            logger.info(f"Attempting standard load for: {encoder_name_or_path}")
+            return SentenceTransformer(encoder_name_or_path, device=device, trust_remote_code=True)
         
-        # --- 2. Fallback: Try the explicit manual assembly method ---
+        except Exception as e_standard:
+            logger.warning(
+                f"Standard loading failed for {encoder_name_or_path} with error: {e_standard}. "
+                f"Falling back to manual assembly..."
+            )
+            force_manual_assembly = True # Set flag to true so we run the next block
+
+    # --- 2. Fallback or Forced Manual Assembly ---
+    if force_manual_assembly:
         try:
             logger.info(f"Attempting manual assembly for: {encoder_name_or_path}")
             
-            # These args are common for BGE-style models
-            config_args = {
-                "model_type": "bert",
-                "trust_remote_code": True
-            }
-            model_args = {
-                "trust_remote_code": True
-            }
+            config_args = {"model_type": "bert", "trust_remote_code": True}
+            model_args = {"trust_remote_code": True}
 
             word_embedding_model = models.Transformer(
                 encoder_name_or_path, 
                 model_args=model_args,
-                config_args=config_args # fix 2
+                config_args=config_args
             )
 
             pooling_model = models.Pooling(
@@ -61,14 +68,13 @@ def build_encoder(encoder_name_or_path: str, device: str = "cpu") -> SentenceTra
             )
             
         except Exception as e_manual:
-            # --- 3. If both methods fail, break ---
             logger.error(
-                f"Manual assembly also failed for {encoder_name_or_path} with error: {e_manual}. "
-                f"Both loading methods failed."
+                f"Manual assembly also failed for {encoder_name_or_path} with error: {e_manual}."
             )
-            # Re-raise the most recent exception, as it's the one from the
-            # failed fallback attempt.
             raise e_manual
+
+    # This line should not be reachable if standard load fails
+    raise RuntimeError("Failed to load encoder using any method.")
 
 # -----------------------------
 # 2. Reusable Components

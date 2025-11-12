@@ -4,6 +4,23 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 from typing import List, Dict, Optional, Tuple
+import logging
+
+import datetime
+
+# Setup logger with datetime info
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+
 
 # Mapping of hierarchy levels to the column names you provided
 HIER_COL_MAP = {
@@ -88,10 +105,10 @@ def build_job_text(
         is_structured: If True, prepends "Job Title:", "Description:", etc.
     """
     
-    if "raw_job_title" in row and pd.notna(row["raw_job_title"]):
+    if "raw_title" in row and pd.notna(row["raw_title"]):
         # This is a free-text job (DECORTE or Karrierewege)
-        title = str(row.get("raw_job_title", "")).strip()
-        raw_desc = str(row.get("raw_job_description", ""))
+        title = str(row.get("raw_title", "")).strip()
+        raw_desc = str(row.get("raw_description", ""))
         desc = process_raw_description(raw_desc)
         alt = "" # Free-text jobs don't have alt labels in this schema
     else:
@@ -363,47 +380,98 @@ class GlobalSkillDataset(Dataset):
 
 def build_skill_lookups(
     esco_df: pd.DataFrame,
-    hier_level: int,
+    hier_level: int,  # Can now be None
     text_fields: str = "title+desc",
-    is_structured: bool = False
-) -> Tuple[List[str], List[str], Dict[str, str]]:
+    is_structured: bool = False,
+    use_expanded_corpus: bool = False
+) -> Tuple[List[str], List[str], Dict[str, str], Dict[str, str]]:
     """
     Creates the essential mappings needed for inference (indexing and re-ranking).
-
-    Args:
-        esco_df: The master ESCO dataframe.
-        hier_level: The category level (0-3) to map against.
-        text_fields: How to build the skill text.
-        is_structured: Whether to use structured text.
-
+    
+    If hier_level is None, this runs in 'baseline' mode and the
+    skill_to_cat_map will be empty.
+    
+    If use_expanded_corpus is True, this "explodes" skills, adding each
+    alt label as a separate item in the corpus.
+    
     Returns:
-        A tuple containing:
-        - all_skill_labels: A list of all unique skill labels.
-        - all_skill_texts: A list of all corresponding skill texts.
-        - skill_to_cat_map: A dict mapping skill_label -> category_label.
+        all_skill_labels: List of skill labels (canonical OR canonical + alts)
+        all_skill_texts: List of corresponding skill texts
+        skill_to_cat_map: Map of {skill_label -> category_label} (for all labels)
+        alt_to_canonical_map: Map of {alt_label -> canonical_label}
     """
-    cat_col = HIER_COL_MAP[hier_level]
+    
+    cat_col = None
+    # --- THIS IS THE MAIN FIX ---
+    # We must check 'is not None' because hier_level=0 is valid
+    if hier_level is not None:
+        cat_col = HIER_COL_MAP[hier_level]
+    # --- END FIX ---
+        
     skill_label_col = "skillLabel"
     
-    # De-duplicate skills, keeping the first occurrence
     unique_skills_df = esco_df.drop_duplicates(subset=[skill_label_col])
     
     all_skill_labels = []
     all_skill_texts = []
     skill_to_cat_map = {}
+    alt_to_canonical_map = {}
+    
+    logger.info(f"Building skill lookups... (Expanded Corpus: {use_expanded_corpus}, Hier Level: {hier_level})")
     
     for _, row in unique_skills_df.iterrows():
-        label = row[skill_label_col]
-        cat = row[cat_col]
+        canonical_label = row[skill_label_col]
         
-        if pd.isna(label) or pd.isna(cat):
+        # --- 1. Check for required canonical label ---
+        if pd.isna(canonical_label):
             continue
-            
-        label = str(label)
-        cat = str(cat)
+        canonical_label = str(canonical_label)
+
+        # --- 2. Conditionally check for category ---
+        canonical_cat = None
+        if cat_col: # This is only True if hier_level was not None
+            cat = row[cat_col]
+            if pd.isna(cat):
+                # If we are in hybrid mode, we MUST have a category.
+                # Skip this skill if it's not in the hierarchy.
+                continue
+            canonical_cat = str(cat)
         
-        all_skill_labels.append(label)
-        all_skill_texts.append(build_skill_text(row, text_fields, is_structured))
-        skill_to_cat_map[label] = cat
+        # --- 3. Add the Canonical Skill ---
+        alt_to_canonical_map[canonical_label] = canonical_label  # Map to self
+        if canonical_cat: # Only add to map if it exists
+            skill_to_cat_map[canonical_label] = canonical_cat
         
-    return all_skill_labels, all_skill_texts, skill_to_cat_map
+        # Determine the text for the canonical skill
+        if use_expanded_corpus:
+            canonical_text_fields = text_fields.replace("+alt", "")
+            canonical_text = build_skill_text(row, canonical_text_fields, is_structured)
+        else:
+            canonical_text = build_skill_text(row, text_fields, is_structured)
+
+        all_skill_labels.append(canonical_label)
+        all_skill_texts.append(canonical_text)
+
+        # --- 4. Optionally Add Alternative Labels ---
+        if use_expanded_corpus:
+            alt_labels_str = str(row.get("skillAltLabels", ""))
+            if alt_labels_str.strip():
+                alt_labels = alt_labels_str.split('\n')
+                for alt_label in alt_labels:
+                    alt_label = alt_label.strip()
+                    if alt_label and alt_label != canonical_label and alt_label not in alt_to_canonical_map:
+                        
+                        alt_row = pd.Series({"skillLabel": alt_label, "description": "", "skillAltLabels": ""})
+                        alt_text = build_skill_text(alt_row, "title", is_structured)
+                        
+                        all_skill_labels.append(alt_label)
+                        all_skill_texts.append(alt_text)
+                        
+                        alt_to_canonical_map[alt_label] = canonical_label
+                        if canonical_cat: # Also map this alt label to the parent's category
+                            skill_to_cat_map[alt_label] = canonical_cat
+
+    logger.info(f"Total items in skill corpus: {len(all_skill_labels)}")
+    logger.info(f"Total items in alias map: {len(alt_to_canonical_map)}")
+        
+    return all_skill_labels, all_skill_texts, skill_to_cat_map, alt_to_canonical_map
