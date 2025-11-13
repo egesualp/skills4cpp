@@ -833,3 +833,108 @@ def create_ir_dataset_from_pairs(pairs_path, corpus_path, output_dir):
     qrels_df.to_csv(output_dir / "qrels.tsv", sep='\t', index=False, header=False)
     print(f"    ✓ Saved {len(qrels_df)} relevance judgements.")
     print("Done!")
+
+
+def create_ir_dataset_from_pairs_task_b(
+    pairs_path, 
+    esco_skills_path, 
+    esco_occ_skill_relations_path, 
+    output_dir, 
+    remove_queries_without_skills=False
+):
+    """
+    Converts a pair-based dataset into a three-file Information Retrieval format for Task B (skill-based).
+
+    Args:
+        pairs_path (str or Path): Path to the CSV file containing query/gold pairs.
+                                  Expected columns: 'raw_title', 'esco_id' (for an occupation).
+        esco_skills_path (str or Path): Path to the ESCO skills CSV file (e.g., skills_en.csv).
+        esco_occ_skill_relations_path (str or Path): Path to the ESCO occupation-skill relations CSV.
+        output_dir (str or Path): Directory to save the three output files.
+        remove_queries_without_skills (bool): If True, queries with no associated skills will be removed. Defaults to False.
+    """
+    print(f"Creating IR dataset for Task B in: {output_dir}")
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Load input files
+    print("  [1/5] Loading input files...")
+    pairs_df = pd.read_csv(pairs_path)
+    skills_df = pd.read_csv(esco_skills_path)
+    occ_skill_relations_df = pd.read_csv(esco_occ_skill_relations_path)
+    print(f"    ✓ Found {len(pairs_df)} pairs, {len(skills_df)} skills, and {len(occ_skill_relations_df)} occupation-skill relations.")
+
+    # 2. Create and save `corpus_elements`
+    print("  [2/5] Creating skill corpus...")
+    
+    def create_skill_aliases(row):
+        aliases = []
+        # Add preferred label
+        if pd.notna(row['preferredLabel']):
+            aliases.append(row['preferredLabel'])
+        # Add altLabels, which is a string of newline-separated labels
+        if pd.notna(row['altLabels']):
+            aliases.extend(row['altLabels'].split('\\n'))
+        # Return as a string representation of a list
+        return str([alias.strip() for alias in aliases])
+
+    corpus_out_df = skills_df[['conceptUri', 'preferredLabel', 'altLabels']].copy()
+    corpus_out_df = corpus_out_df.reset_index().rename(columns={"index": "c_id"})
+    corpus_out_df['skill_aliases'] = corpus_out_df.apply(create_skill_aliases, axis=1)
+    
+    corpus_elements = corpus_out_df[['c_id', 'conceptUri', 'skill_aliases']]
+    corpus_elements = corpus_elements.rename(columns={'conceptUri': 'esco_uri'}) # Match target format
+    corpus_elements.to_csv(output_dir / "corpus_elements", sep='\t', index=False)
+    print(f"    ✓ Saved {len(corpus_elements)} corpus elements.")
+
+    # 3. Create and save `queries`
+    print("  [3/5] Creating queries...")
+    queries_out_df = pairs_df[['raw_title']].copy()
+    queries_out_df = queries_out_df.reset_index().rename(columns={"index": "q_id", "raw_title": "jobtitle"})
+    queries_out_df.to_csv(output_dir / "queries", sep='\t', index=False)
+    print(f"    ✓ Saved {len(queries_out_df)} queries.")
+
+    # 4. Create and save `qrels.tsv`
+    print("  [4/5] Creating relevance judgements (qrels)...")
+    
+    # Create a mapping from skill URI to a list of c_ids
+    skill_uri_to_cids = corpus_out_df.groupby('conceptUri')['c_id'].apply(list).to_dict()
+
+    # Create a mapping from occupation URI to a list of skill URIs
+    occ_uri_to_skill_uris = occ_skill_relations_df.groupby('occupationUri')['skillUri'].apply(list).to_dict()
+
+    qrels_data = []
+    pairs_with_qids = pairs_df.reset_index().rename(columns={"index": "q_id"})
+    
+    # Keep track of q_ids that have at least one skill
+    q_ids_with_skills = set()
+
+    for _, row in pairs_with_qids.iterrows():
+        q_id = row['q_id']
+        occ_uri = row['esco_id']
+        
+        relevant_skill_uris = occ_uri_to_skill_uris.get(occ_uri, [])
+        
+        if relevant_skill_uris:
+            q_ids_with_skills.add(q_id)
+
+        for skill_uri in relevant_skill_uris:
+            relevant_cids = skill_uri_to_cids.get(skill_uri, [])
+            for c_id in relevant_cids:
+                qrels_data.append([q_id, 0, c_id, 1])
+    
+    qrels_df = pd.DataFrame(qrels_data)
+    qrels_df.to_csv(output_dir / "qrels.tsv", sep='\t', index=False, header=False)
+    print(f"    ✓ Saved {len(qrels_df)} relevance judgements.")
+
+    # 5. Filter queries to only include those with skills (optional)
+    if remove_queries_without_skills:
+        print("  [5/5] Filtering queries to remove those without skills...")
+        original_query_count = len(queries_out_df)
+        queries_out_df = queries_out_df[queries_out_df['q_id'].isin(q_ids_with_skills)]
+        queries_out_df.to_csv(output_dir / "queries", sep='\t', index=False)
+        print(f"    ✓ Saved {len(queries_out_df)} queries (removed {original_query_count - len(queries_out_df)} queries with no skills).")
+    else:
+        print("  [5/5] Keeping all queries, including those without skills.")
+    
+    print("Done!")

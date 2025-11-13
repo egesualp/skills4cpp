@@ -31,7 +31,7 @@ def parse_args():
                         help="Path to the job dataset (e.g., decorte_test.csv)")
     parser.add_argument("--esco_data_path", type=str, 
                         default="data/processed/master_datasets_2/master_complete_hierarchy_w_occ.csv")
-    parser.add_argument("--cat_model_ckpt", type=str, 
+    parser.add_argument("--cat_model_ckpt", type=str, default=None,
                         help="Path to your trained CategoryPredictor .pt file")
     parser.add_argument("--out_dir", type=str, default="results/")
 
@@ -87,53 +87,66 @@ def average_precision_at_k(
             
     return precision_sum / min(len(actual_labels), k)
 
+# In run_inference.py
+
 def evaluate_predictions(
-    all_predictions: Dict[str, List[Tuple[str, float]]],
-    ground_truth_map: Dict[str, Set[str]],
-    alt_to_canonical_map: Dict[str, str], # <-- NEW ARGUMENT
+    all_predictions: Dict[str, List[Tuple[str, float]]],  # Key is now job_id
+    ground_truth_map: Dict[str, Set[str]], # Key is now job_id
+    alt_to_canonical_map: Dict[str, str],
     k_list: List[int] = [5, 10, 20]
 ) -> Dict[str, float]:
     """
     Computes Precision@k, Recall@k, and MAP@k for all queries.
+    Uses job_id as the key to prevent de-duplication bugs.
     """
     metrics = {f"P@{k}": [] for k in k_list}
     metrics.update({f"R@{k}": [] for k in k_list})
     metrics.update({f"MAP@{k}": [] for k in k_list})
 
-    job_texts = list(all_predictions.keys())
+    # --- THIS IS THE FIX ---
+    # We now loop over unique job_ids, not job_texts
+    job_ids = list(all_predictions.keys())
+    # --- END FIX ---
 
     num_queries_evaluated = 0
     
-    for job_text in job_texts:
-        actual_labels = ground_truth_map.get(job_text)
+    # --- THIS IS THE FIX ---
+    for job_id in job_ids:  # Changed from job_text
+    # --- END FIX ---
+    
+        # --- THIS IS THE FIX ---
+        # We get the ground truth by job_id
+        actual_labels = ground_truth_map.get(job_id) 
+        # --- END FIX ---
+        
         if not actual_labels or len(actual_labels) == 0: continue
         
         num_queries_evaluated += 1
-        predicted_scores = all_predictions.get(job_text, [])
+        
+        # --- THIS IS THE FIX ---
+        # We get the predictions by job_id
+        predicted_scores = all_predictions.get(job_id, []) 
+        # --- END FIX ---
+        
         total_relevant = len(actual_labels)
 
-        # --- This is the new normalization logic ---
+        # --- This alias logic is 100% correct and needs no changes ---
         normalized_predicted_labels = []
         seen_canonical_labels = set()
         for alt_label, score in predicted_scores:
-            # Map the retrieved label (which could be an alt) back to its canonical form
             canonical_label = alt_to_canonical_map.get(alt_label, alt_label)
-            
-            # Add to list only if we haven't seen this canonical skill before
             if canonical_label not in seen_canonical_labels:
                 normalized_predicted_labels.append(canonical_label)
                 seen_canonical_labels.add(canonical_label)
-        # --- End of new logic ---
+        # --- End of alias logic ---
 
         for k in k_list:
-            # Use the new normalized list for evaluation
             top_k_preds = normalized_predicted_labels[:k]
             
             hits = len(set(top_k_preds) & actual_labels)
             metrics[f"P@{k}"].append(hits / k)
             metrics[f"R@{k}"].append(hits / total_relevant)
             
-            # Pass the full normalized list to MAP@k
             metrics[f"MAP@{k}"].append(
                 average_precision_at_k(normalized_predicted_labels, actual_labels, k)
             )
@@ -150,17 +163,19 @@ def load_ground_truth(
     job_df: pd.DataFrame, 
     esco_df: pd.DataFrame, 
     args: argparse.Namespace
-) -> Tuple[Dict[str, Set[str]], List[str]]:
+) -> Tuple[Dict[str, Set[str]], Dict[str, str]]: # <-- MODIFIED RETURN
     """
     Loads the ground truth by merging the job_df with the esco_df.
-    Returns a map of {job_text: set_of_true_skill_labels}
+    Returns:
+        ground_truth_map: {job_id -> set_of_true_skill_labels}
+        job_id_to_text_map: {job_id -> job_text_string}
     """
     logger.info(f"Building ground truth from {len(job_df)} jobs...")
     
-    # Reset index to ensure we can track original job indices
+    # Give every job a unique ID, e.g., "job_0", "job_1"
     job_df_with_idx = job_df.reset_index().rename(columns={'index': 'original_job_idx'})
+    job_df_with_idx['job_id'] = job_df_with_idx['original_job_idx'].apply(lambda x: f"job_{x}")
     
-    # Use the column names you specified
     merged_df = job_df_with_idx.merge(
         esco_df,
         left_on="esco_id",
@@ -170,32 +185,32 @@ def load_ground_truth(
     )
     
     ground_truth_map = {}
-    job_texts_to_run = []
+    job_id_to_text_map = {}
     
-    # Group by the original job index to get one sample per job
-    for job_idx, skills_for_job in merged_df.groupby('original_job_idx'):
+    # Group by the new unique job_id
+    for job_id, skills_for_job in merged_df.groupby('job_id'):
         if skills_for_job.empty:
             continue
         
         first_row = skills_for_job.iloc[0]
         
-        # Build the job text exactly as it will be fed to the models
         job_text = build_job_text(
             first_row, 
             text_fields=args.text_fields, 
             is_structured=args.is_structured
         )
         
-        # Get unique skill labels from all *skills* linked to this job
         true_skills = set(
             skills_for_job["skillLabel"].dropna().astype(str).unique()
         )
         
-        ground_truth_map[job_text] = true_skills
-        job_texts_to_run.append(job_text)
+        # Store everything using job_id as the key
+        ground_truth_map[job_id] = true_skills
+        job_id_to_text_map[job_id] = job_text
 
     logger.success(f"Built ground truth for {len(ground_truth_map)} jobs.")
-    return ground_truth_map, job_texts_to_run
+    # Return the two new maps
+    return ground_truth_map, job_id_to_text_map
 
 # -----------------------------
 # 3. FAISS & PIPELINE SETUP
@@ -356,8 +371,12 @@ def main(args):
 
     # --- 2. Load Ground Truth Job Data ---
     job_df = pd.read_csv(args.job_data_path)
-    ground_truth_map, job_texts_to_run = load_ground_truth(job_df, esco_df, args)
+    ground_truth_map, job_id_to_text_map = load_ground_truth(job_df, esco_df, args)
 
+    # Get a list of IDs to run, and a corresponding list of texts
+    job_ids_to_run = list(job_id_to_text_map.keys())
+    job_texts_to_run = list(job_id_to_text_map.values())
+    
     # --- 3. Load Step 1: Category Model ---
     category_model = None
     if run_hybrid_mode:
@@ -392,6 +411,10 @@ def main(args):
         all_skill_texts=all_skill_texts,
         device=device
     )
+    # --- NEW: Get the actual corpus size ---
+    full_corpus_size = faiss_index.ntotal
+    logger.info(f"Full corpus size detected: {full_corpus_size}")
+    # --- END NEW ---
 
     # --- 5. Run Hybrid Inference Pipeline ---
     logger.info(f"Running hybrid inference on {len(job_texts_to_run)} job texts...")
@@ -400,38 +423,43 @@ def main(args):
     # Process in batches for efficiency
     batch_size = args.batch_size
     desc = "Hybrid Inference" if run_hybrid_mode else "Baseline Inference"
-    for i in tqdm(range(0, len(job_texts_to_run), batch_size), desc=desc):
+    for i in tqdm(range(0, len(job_ids_to_run), batch_size), desc=desc):
+        # Get the batch of texts AND their corresponding IDs
         batch_job_texts = job_texts_to_run[i : i + batch_size]
+        batch_job_ids = job_ids_to_run[i : i + batch_size]
         
-        # --- Step 1: Always retrieve baseline skills ---
+        if not batch_job_texts: continue
+
         retrieved_skills_batch = retrieve_skills(
             batch_job_texts, skill_encoder, faiss_index, faiss_id_to_label_map, args.top_k
         )
         
-        # --- Step 2: Optionally run hybrid re-ranking ---
         if run_hybrid_mode:
             cat_probs_batch = predict_categories(category_model, batch_job_texts, cat_idx2label)
         
-        for j, job_text in enumerate(batch_job_texts):
+        # Re-associate predictions with their unique ID
+        for j, job_id in enumerate(batch_job_ids):
             if run_hybrid_mode:
-            # Always save the baseline result
                 ranked_skills = merge_hybrid_scores(
                     category_prob_map=cat_probs_batch[j],
                     retrieved_skills=retrieved_skills_batch[j],
                     skill_to_cat_map=skill_to_cat_map,
                     category_threshold=args.cat_threshold
                 )
-                all_predictions[job_text] = ranked_skills
-            
+                all_predictions[job_id] = ranked_skills # Use job_id as key
             else:
-                all_predictions[job_text] = retrieved_skills_batch[j]
+                all_predictions[job_id] = retrieved_skills_batch[j]
 
 
     # --- 6. Evaluate and Save Results ---
     logger.info(f"Evaluating {process} predictions...")
+
+    # --- MODIFIED: Add the dynamic full_k ---
+    k_list_eval = [5, 10, 20, 50]
+    k_list_eval.append(full_corpus_size) # e.g., adds 13939
+    # --- END MODIFIED ---
        
     
-    k_list_eval = [5, 10, 20, 50, 20000]
     final_metrics = evaluate_predictions(
         all_predictions=all_predictions,
         ground_truth_map=ground_truth_map,
@@ -441,9 +469,24 @@ def main(args):
     
     logger.success(f"--- {process} EVALUATION RESULTS ---")
     print(json.dumps(final_metrics, indent=2))
+
+    # This renames "MAP@13939" to "MAP@full", etc.
+    try:
+        final_metrics[f"P@full"] = final_metrics.pop(f"P@{full_corpus_size}")
+        final_metrics[f"R@full"] = final_metrics.pop(f"R@{full_corpus_size}")
+        final_metrics[f"MAP@full"] = final_metrics.pop(f"MAP@{full_corpus_size}")
+        final_metrics[f'corpus_size'] = full_corpus_size
+    except KeyError:
+        logger.warning(f"Could not find full_corpus_size key {full_corpus_size} to rename.")
     
+    logger.success(f"--- {process} EVALUATION RESULTS (Cleaned) ---")
+    print(json.dumps(final_metrics, indent=2))
+    # --- END NEW ---
+
     # Save predictions and metrics
     out_path_preds = Path(args.out_dir) / f"{run_name}_predictions.json"
+    
+    # Save predictions and metrics
     out_path_metrics = Path(args.out_dir) / f"{run_name}_metrics.json"
     
     # Convert predictions to a serializable format
@@ -462,7 +505,7 @@ def main(args):
 
     # --- NEW: Append to master CSV log ---
     duration_seconds = time.time() - start_time
-    csv_path = Path(args.out_dir) / "master_results.csv"
+    csv_path = Path(args.out_dir) / "master_results_new.csv"
     log_results_to_csv(csv_path, run_name, duration_seconds, process, args, final_metrics)
 
 

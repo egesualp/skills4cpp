@@ -19,26 +19,89 @@ from sentence_transformers.models import Router
 from sentence_transformers.evaluation import InformationRetrievalEvaluator
 from helpers.SkillRetrievalEvaluator import SkillRetrievalEvaluator
 import ast
+import os
 
 task = "B"
 sanity_check=False
+use_alias_expansion=True
+dataset="talentclef"
+MODEL_ID =  "pj-mathematician/JobSkillGTE-7b-lora"    # Can use any sentence-transformer model
+DEVICE = "cuda"                                      # or "cpu"
+RESULTS_CSV_PATH = "results/vanilla_ir_eval_results.csv"
 # ==================== Configuration ====================
 #QUERIES_PATH = "data/talent_clef/TaskA/validation/english/queries"
 #CORPUS_PATH = "data/talent_clef/TaskA/validation/english/corpus_elements"
 #QRELS_PATH = "data/talent_clef/TaskA/validation/english/qrels.tsv"
 
 # Task A below
-if task == "A":
-    QUERIES_PATH = "data/talent_clef/TaskA/validation/english/queries"  
-    CORPUS_PATH = "data/talent_clef/TaskA/validation/english/corpus_elements"
-    QRELS_PATH = "data/talent_clef/TaskA/validation/english/qrels.tsv"
+if dataset=="talentclef":
+    if task == "A":
+        QUERIES_PATH = "data/talent_clef/TaskA/validation/english/queries"  
+        CORPUS_PATH = "data/talent_clef/TaskA/validation/english/corpus_elements"
+        QRELS_PATH = "data/talent_clef/TaskA/validation/english/qrels.tsv"
+    else:
+        CORPUS_PATH = "data/talent_clef/TaskB/validation/corpus_elements"
+        QUERIES_PATH = "data/talent_clef/TaskB/validation/queries"  
+        QRELS_PATH = "data/talent_clef/TaskB/validation/qrels.tsv"
+elif dataset=="decorte":
+    if task=="A":
+        QUERIES_PATH = "data/ir_format/decorte_test_lean/queries"  
+        CORPUS_PATH = "data/ir_format/decorte_test_lean/corpus_elements"
+        QRELS_PATH = "data/ir_format/decorte_test_lean/qrels.tsv"
+    else:
+        CORPUS_PATH = "data/ir_format/decorte_test_task_b_all_queries/corpus_elements"
+        QUERIES_PATH = "data/ir_format/decorte_test_task_b_all_queries/queries"  
+        QRELS_PATH = "data/ir_format/decorte_test_task_b_all_queries/qrels.tsv"
 else:
-    CORPUS_PATH = "data/talent_clef/TaskB/validation/corpus_elements"
-    QUERIES_PATH = "data/talent_clef/TaskB/validation/queries"  
-    QRELS_PATH = "data/talent_clef/TaskB/validation/qrels.tsv"
+    print("sorry")
 
-MODEL_ID =  "TechWolf/JobBERT-v2"    # Can use any sentence-transformer model
-DEVICE = "cpu"                                      # or "cpu"
+
+
+def save_results_to_csv(results, model_id, task, dataset, use_alias_expansion, output_path, alias_count=0):
+    """Appends evaluation results to a master CSV file in a long format."""
+    
+    records = []
+    for full_metric, value in results.items():
+        # Create a simplified metric name
+        try:
+            # Assumes metric format like 'TaskB_cosine_map@10'
+            metric_part = full_metric.split('cosine_')[-1]
+            if alias_count > 0 and str(alias_count) in metric_part:
+                 metric_part = metric_part.replace(str(alias_count), 'full')
+        except:
+            metric_part = "unknown"
+
+        record = {
+            "model_id": model_id,
+            "task": task,
+            "dataset": dataset,
+            "use_alias_expansion": use_alias_expansion,
+            "full_metric": full_metric,
+            "metric": metric_part,
+            "value": value
+        }
+        records.append(record)
+
+    # Convert to a DataFrame
+    new_results_df = pd.DataFrame(records)
+
+    # Ensure the directory exists
+    output_dir = os.path.dirname(output_path)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # Append to the CSV file
+    try:
+        if os.path.exists(output_path):
+            master_df = pd.read_csv(output_path)
+            master_df = pd.concat([master_df, new_results_df], ignore_index=True)
+        else:
+            master_df = new_results_df
+        
+        master_df.to_csv(output_path, index=False)
+        print(f"\n[✓] Results appended to {output_path}")
+    except Exception as e:
+        print(f"\n[!!!] Error saving results: {e}")
 
 
 def main():
@@ -120,6 +183,9 @@ def main():
         model_raw = SentenceTransformer(MODEL_ID, device=DEVICE)
         model = SentenceTransformer(modules=[model_raw[0], model_raw[1]], device=DEVICE)
 
+        # For saving results consistently
+        alias_count = 0
+
         # Create the evaluator as shown in the documentation
         if task == "A":
             print("Using standard InformationRetrievalEvaluator for Task A...")
@@ -130,43 +196,57 @@ def main():
                 name=""
             )
         else:
-            print("Using custom SkillRetrievalEvaluator for Task B...")
+            if use_alias_expansion:
+                print("Using custom SkillRetrievalEvaluator for Task B...")
 
-            # --- START FIX: Pre-calculate total alias count ---
-            print("  > Pre-calculating total alias count...")
-            alias_count = 0
-            for aliases_str in corpus.values(): # corpus is dict {c_id: alias_string}
-                try:
-                    alias_count += len(ast.literal_eval(aliases_str))
-                except:
-                    pass # Ignore parsing errors if any
+                # --- START FIX: Pre-calculate total alias count ---
+                print("  > Pre-calculating total alias count...")
+                alias_count = 0
+                for aliases_str in corpus.values(): # corpus is dict {c_id: alias_string}
+                    try:
+                        alias_count += len(ast.literal_eval(aliases_str))
+                    except:
+                        pass # Ignore parsing errors if any
+                    
+                # Add a buffer just in case
+                alias_count += 10 
+                print(f"  > Setting k = {alias_count} to get full ranking.")
+                # --- END FIX ---
+
+                ir_evaluator = SkillRetrievalEvaluator(
+                    queries=queries,
+                    corpus=corpus,
+                    relevant_docs=relevant_docs,
+                    name="TaskB",
+                    # -- THIS IS FIX --
+                    map_at_k=[alias_count],
+                    ndcg_at_k=[10, alias_count], # Keep @10, but add full list
+                    mrr_at_k=[10, alias_count],
+                    accuracy_at_k=[1, 3, 5, 10], # These are fine
+                    precision_recall_at_k=[1, 3, 5, 10] # These are fine 
+                )
+            else:
+                print("Using standard InformationRetrievalEvaluator for Task B (no alias expansion)...")
+                # When not expanding, we need to use the canonical skill label, not the alias list.
+                # Assuming 'skill_label' is present in corpus_df.
+                corpus_no_expansion = dict(zip(corpus_df['c_id'].astype(str), corpus_df['skill_label'].astype(str)))
                 
-            # Add a buffer just in case
-            alias_count += 10 
-            print(f"  > Setting k = {alias_count} to get full ranking.")
-            # --- END FIX ---
-
-            ir_evaluator = SkillRetrievalEvaluator(
-                queries=queries,
-                corpus=corpus,
-                relevant_docs=relevant_docs,
-                name="TaskB",
-                # -- THIS IS FIX --
-                map_at_k=[alias_count],
-                ndcg_at_k=[10, alias_count], # Keep @10, but add full list
-                mrr_at_k=[10, alias_count],
-                accuracy_at_k=[1, 3, 5, 10], # These are fine
-                precision_recall_at_k=[1, 3, 5, 10] # These are fine 
-            )
-
+                ir_evaluator = InformationRetrievalEvaluator(
+                    queries=queries,
+                    corpus=corpus_no_expansion,
+                    relevant_docs=relevant_docs,
+                    name="TaskB_no_expansion"
+                )
 
         # This call will handle everything: encoding, scoring, and printing results
         results = ir_evaluator(model)
 
+        save_results_to_csv(results, MODEL_ID, task, dataset, use_alias_expansion, RESULTS_CSV_PATH, alias_count=alias_count)
+
         for k, v in results.items():
             print(f"{k}: {v}")
 
-        print("\\n" + "=" * 60)
+        print("\n" + "=" * 60)
         print("Evaluation Complete!")
         print("The metrics table is printed above by the evaluator.")
         print("=" * 60)
