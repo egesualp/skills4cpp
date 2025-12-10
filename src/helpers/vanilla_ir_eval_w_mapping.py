@@ -20,12 +20,15 @@ from sentence_transformers.evaluation import InformationRetrievalEvaluator
 from helpers.SkillRetrievalEvaluator import SkillRetrievalEvaluator
 import ast
 import os
+from huggingface_hub import snapshot_download
 
 task = "B"
 sanity_check=False
-use_alias_expansion=True
-dataset="talentclef"
-MODEL_ID =  "pj-mathematician/JobSkillGTE-7b-lora"    # Can use any sentence-transformer model
+use_alias_expansion=False
+dataset="decorte"
+#MODEL_ID =  "pj-mathematician/JobSkillGTE-7b-lora"    # Can use any sentence-transformer model
+MODEL_ID = "pj-mathematician/JobSkillBGE-large-en-v1.5"
+checkpoint_subfolder = "checkpoint-4480"
 DEVICE = "cuda"                                      # or "cpu"
 RESULTS_CSV_PATH = "results/vanilla_ir_eval_results.csv"
 # ==================== Configuration ====================
@@ -180,8 +183,28 @@ def main():
         # ==================== 3. Load Model & Run Evaluation ====================
         print(f"\n[3/3] Loading model and running evaluation...")
         print(f"Model ID: {MODEL_ID}")
-        model_raw = SentenceTransformer(MODEL_ID, device=DEVICE)
-        model = SentenceTransformer(modules=[model_raw[0], model_raw[1]], device=DEVICE)
+
+        if 'bge' in MODEL_ID or checkpoint_subfolder is not None:
+            # 1. Define the repo and the specific subfolder you want
+
+            # 2. Download *only* the contents of that subfolder
+            # This downloads the files to your local cache and returns the path to the main snapshot
+            snapshot_path = snapshot_download(
+                repo_id=MODEL_ID,
+                allow_patterns=[f"{checkpoint_subfolder}/*"]  # This downloads only the checkpoint files
+            )
+
+            # 3. Create the full local path to the model files
+            # The files are inside the checkpoint folder within the snapshot
+            model_path = os.path.join(snapshot_path, checkpoint_subfolder)
+
+            # 4. Now, load the model from the *local path*
+            print(f"Loading model from local path: {model_path}")
+            model = SentenceTransformer(model_path)
+        else:
+            model = SentenceTransformer(MODEL_ID, device=DEVICE)
+            if 'BERT' in MODEL_ID:
+                model = SentenceTransformer(modules=[model[0], model[1]], device=DEVICE)
 
         # For saving results consistently
         alias_count = 0
@@ -229,7 +252,7 @@ def main():
                 print("Using standard InformationRetrievalEvaluator for Task B (no alias expansion)...")
                 # When not expanding, we need to use the canonical skill label, not the alias list.
                 # Assuming 'skill_label' is present in corpus_df.
-                corpus_no_expansion = dict(zip(corpus_df['c_id'].astype(str), corpus_df['skill_label'].astype(str)))
+                corpus_no_expansion = dict(zip(corpus_df['c_id'].astype(str), corpus_df['skill_aliases'].astype(str)))
                 
                 ir_evaluator = InformationRetrievalEvaluator(
                     queries=queries,

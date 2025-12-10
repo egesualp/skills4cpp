@@ -7,6 +7,7 @@ pytest==8.4.2
 PyYAML==6.0.3
 sentence_transformers==5.1.1
 torch==2.6.0
+typer
 tqdm==4.67.1
 wandb
 loguru

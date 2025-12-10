@@ -60,7 +60,7 @@ def parse_args():
                         help="Probability threshold for multi-label classification metrics.")
     
     # I/O & Logging
-    parser.add_argument("--out_dir", type=str, default="checkpoints/")
+    parser.add_argument("--out_dir", type=str, default="models/")
     parser.add_argument("--run_name", type=str, default=None,
                         help="A name for this specific run (used for .pt and .log files).")
     parser.add_argument("--wandb", action="store_true")
@@ -332,7 +332,7 @@ def main():
     # --- Setup Logging ---
     run_name = args.run_name or f"{args.task}_{args.source}_{args.encoder_ckpt.split('/')[-1]}_lvl{args.target_level}"
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
-    log_path = Path(args.out_dir) / f"{run_name}.log"
+    log_path = Path("experiments/logs/skill_extraction_training") / f"{run_name}.log"
     logger.add(log_path, rotation="1 MB")
     logger.info(f"Starting run: {run_name}")
     logger.info(f"Arguments: {vars(args)}")
@@ -344,7 +344,7 @@ def main():
 
     # --- Load DataFrames ---
     logger.info("Loading DataFrames...")
-    esco_df = pd.read_csv("data/processed/master_datasets/master_complete_hierarchy_w_occ.csv")
+    esco_df = pd.read_csv("data/processed/master_datasets_2/master_complete_hierarchy_w_occ.csv")
     
     # Load the correct job dataframes based on the source
     # This logic matches your original script

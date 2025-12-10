@@ -1,6 +1,11 @@
 docs/site/
 data/
 cache/
+models/
+results/skill_extraction/
+wandb/
+experiments/logs/
+results/*
 
 # test cache
 manual_test/
@@ -44,6 +49,9 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+*.pt
+*.pkl
+*_predictions.json
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

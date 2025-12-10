@@ -461,8 +461,21 @@ def build_skill_lookups(
                     alt_label = alt_label.strip()
                     if alt_label and alt_label != canonical_label and alt_label not in alt_to_canonical_map:
                         
-                        alt_row = pd.Series({"skillLabel": alt_label, "description": "", "skillAltLabels": ""})
-                        alt_text = build_skill_text(alt_row, "title", is_structured)
+                        # --- FIX: Conditionally enrich the alias based on the text_fields argument. ---
+                        if "desc" in text_fields:
+                            # Use the canonical skill's description to enrich the alias.
+                            canonical_description = str(row.get("description", ""))
+                            alt_row = pd.Series({
+                                "skillLabel": alt_label, 
+                                "description": canonical_description,
+                                "skillAltLabels": ""
+                            })
+                            alt_text = build_skill_text(alt_row, "title+desc", is_structured)
+                        else:
+                            # Only use the alias title, which may be less informative.
+                            alt_row = pd.Series({"skillLabel": alt_label, "description": "", "skillAltLabels": ""})
+                            alt_text = build_skill_text(alt_row, "title", is_structured)
+                        # --- END FIX ---
                         
                         all_skill_labels.append(alt_label)
                         all_skill_texts.append(alt_text)

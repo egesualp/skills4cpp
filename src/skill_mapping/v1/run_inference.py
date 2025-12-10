@@ -391,7 +391,14 @@ def main(args):
             logger.info(f"Inferred hidden_dim: {args.hidden_dim}")
 
         cat_col = HIER_COL_MAP[args.hier_level]
+        
+        # --- FIX: Derive categories from the specific job data, not the whole ESCO corpus ---
+        # This ensures that the category set matches what the model was trained on (e.g., 'decorte' data)
+        logger.info(f"Deriving categories from the full ESCO dataset for Level {args.hier_level}...")
         all_cat_labels = esco_df[cat_col].dropna().astype(str).unique().tolist()
+        logger.info(f"Found {len(all_cat_labels)} unique categories for Level {args.hier_level} in the full dataset.")
+        # --- END FIX ---
+        
         cat_idx2label = {i: label for i, label in enumerate(all_cat_labels)}
 
         category_model = load_category_model(
@@ -414,7 +421,15 @@ def main(args):
     # --- NEW: Get the actual corpus size ---
     full_corpus_size = faiss_index.ntotal
     logger.info(f"Full corpus size detected: {full_corpus_size}")
-    # --- END NEW ---
+    # --- START OF FIX ---
+    # Set the retrieval k based on the run mode.
+    # For baseline, we MUST retrieve all skills for a true MAP@full.
+    # For hybrid, we only retrieve the top_k to be re-ranked.
+    retrieval_k = args.top_k
+    #if not run_hybrid_mode:
+    #    logger.warning(f"BASELINE mode detected. Setting retrieval k to full corpus size: {full_corpus_size}")
+    #    retrieval_k = full_corpus_size
+    # --- END OF FIX ---
 
     # --- 5. Run Hybrid Inference Pipeline ---
     logger.info(f"Running hybrid inference on {len(job_texts_to_run)} job texts...")
@@ -431,7 +446,7 @@ def main(args):
         if not batch_job_texts: continue
 
         retrieved_skills_batch = retrieve_skills(
-            batch_job_texts, skill_encoder, faiss_index, faiss_id_to_label_map, args.top_k
+            batch_job_texts, skill_encoder, faiss_index, faiss_id_to_label_map, retrieval_k
         )
         
         if run_hybrid_mode:
@@ -455,7 +470,8 @@ def main(args):
     logger.info(f"Evaluating {process} predictions...")
 
     # --- MODIFIED: Add the dynamic full_k ---
-    k_list_eval = [5, 10, 20, 50]
+    k_list_eval = [5, 10, 20, args.top_k]
+    k_list_eval.sort()
     k_list_eval.append(full_corpus_size) # e.g., adds 13939
     # --- END MODIFIED ---
        
