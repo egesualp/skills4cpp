@@ -6,7 +6,7 @@ import pandas as pd
 import typer
 from loguru import logger
 
-from skill_mapping.v1.data import build_job_text
+from src.JobToESCO.data import build_job_text
 
 
 def main(

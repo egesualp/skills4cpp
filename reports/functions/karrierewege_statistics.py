@@ -157,6 +157,136 @@ def generate_figure_4_1(career_lengths, isco_counts_counter):
     print(f"✓ Saved as PDF ({out_pdf}) and PNG ({out_png}) (300 DPI)")
     print("="*60)
 
+def generate_transition_matrix(df, content_to_esco, esco_to_isco):
+    print("\n" + "="*60)
+    print("FIGURE 4.2: CAREER TRANSITION MATRIX (KW+CP)")
+    print("="*60)
+    
+    # 1. Group by _id
+    grouped = df.groupby('_id')
+    
+    from collections import Counter
+    transition_matrix = Counter()
+    
+    # Helper for mapping
+    def get_major_group(title, desc):
+        t = str(title).strip() if pd.notna(title) else ""
+        d = str(desc).strip() if pd.notna(desc) else ""
+        
+        # Clean description by removing "{title}: " prefix
+        if t and d.startswith(f"{t}: "):
+            d = d[len(t)+2:].strip()
+            
+        k = (t, d)
+        esco_id = content_to_esco.get(k)
+        if esco_id:
+            isco = esco_to_isco.get(esco_id)
+            if isco:
+                return isco[0] # First digit
+        return None
+
+    print("Building transition matrix from ALL career transitions...")
+    processed_count = 0
+    skipped_count = 0  # < 2 experiences
+    total_transitions = 0
+    
+    # Iterate through all careers and capture ALL transitions (not just last step)
+    # This replicates the Decorte notebook behavior
+    
+    for _id, group in grouped:
+        if len(group) < 2:
+            skipped_count += 1
+            continue
+            
+        # Ensure sorted by experience_order
+        curr_career = group.sort_values('experience_order')
+        
+        # Iterate through ALL consecutive pairs in the career
+        prev_major = None
+        for i in range(len(curr_career)):
+            row = curr_career.iloc[i]
+            curr_major = get_major_group(row['new_job_title_en_cp'], row['new_job_description_en_cp'])
+            
+            if curr_major is not None:
+                if prev_major is not None:
+                    transition_matrix[(prev_major, curr_major)] += 1
+                    total_transitions += 1
+                prev_major = curr_major
+            
+        processed_count += 1
+        
+    print(f"Processed {processed_count} careers. Skipped {skipped_count} (length < 2).")
+    print(f"Total transitions captured: {total_transitions:,}")
+    
+    if not transition_matrix:
+        print("No valid transitions found (check ISCO mapping).")
+        return
+
+    # Convert to DataFrame
+    # Collect all present codes
+    isco_codes_present = sorted(set([t[0] for t in transition_matrix.keys()] + [t[1] for t in transition_matrix.keys()]))
+    # Force 0-9 if possible for consistency, but if data is missing some groups, we stick to present?
+    # User's code used 'isco_codes_present'.
+    # But usually better to enforce 0-9 to make it comparable.
+    all_codes = sorted([str(i) for i in range(10)])
+    # Filter to only those that actually exist in taxonomy or data?
+    # Let's stick to 0-9 as index/columns to ensure full matrix.
+    
+    matrix_df = pd.DataFrame(0, index=all_codes, columns=all_codes)
+    for (from_code, to_code), count in transition_matrix.items():
+        if from_code in all_codes and to_code in all_codes:
+            matrix_df.loc[from_code, to_code] = count
+
+    # Create a mapping for cleaner, shorter labels
+    isco_short_names = {
+        '0': 'Armed Forces',
+        '1': 'Managers',
+        '2': 'Professionals',
+        '3': 'Technicians',
+        '4': 'Clerical Support',
+        '5': 'Service & Sales',
+        '6': 'Agri/Forest/Fish',
+        '7': 'Craft & Trades',
+        '8': 'Operators/Assemblers',
+        '9': 'Elementary'
+    }
+
+    # Use these in the heatmap
+    xticklabels=[f"{c}: {isco_short_names.get(c, '')}" for c in all_codes]
+    yticklabels=[f"{c}: {isco_short_names.get(c, '')}" for c in all_codes]
+
+    # Normalize by row
+    # Use fillna(0) to handle rows with sum=0
+    row_sums = matrix_df.sum(axis=1)
+    # Avoid division by zero
+    matrix_normalized = matrix_df.div(row_sums, axis=0).fillna(0) * 100
+
+    # Visualize
+    try:
+        sns.set_theme(style="white") # Reset style for heatmap
+    except: pass
+    
+    fig, ax = plt.subplots(figsize=(12, 10), dpi=300)
+    sns.heatmap(matrix_normalized, annot=True, fmt='.1f', cmap='Blues', ax=ax,
+                xticklabels=xticklabels,
+                yticklabels=yticklabels,
+                annot_kws={'fontsize': 12, 'fontstyle': 'italic'})
+    ax.set_xlabel('To ISCO Group', fontsize=14, fontweight='bold')
+    ax.set_ylabel('From ISCO Group', fontsize=14, fontweight='bold')
+    ax.set_title('4.2 Karrierewege+CP Career Transition Matrix (% of transitions from each group)', fontsize=16, fontweight='bold')
+    ax.tick_params(axis='both', labelsize=12)
+    plt.tight_layout()
+    
+    out_pdf = Path('career_transition_matrix_kw_cp.pdf')
+    out_png = Path('career_transition_matrix_kw_cp.png')
+    
+    fig.savefig(out_pdf, dpi=300, bbox_inches='tight')
+    fig.savefig(out_png, dpi=300, bbox_inches='tight')
+    
+    print("\n✓ Figure 4.2 generated successfully")
+    print(f"✓ Saved as PDF ({out_pdf}) and PNG ({out_png}) (300 DPI)")
+    print("="*60)
+
 def main():
     print("Loading ElenaSenger/Karrierewege_plus dataset...")
     # Load the dataset - loading 'train' split by default as done in utils.py for similar tasks
@@ -541,6 +671,14 @@ def main():
         isco_counts_counter = Counter()
 
     generate_figure_4_1(career_lengths, isco_counts_counter)
+
+    # --- Generate Figure 4.2: Transition Matrix ---
+    # We pass df_clean because we only want valid resumes/titles.
+    # We pass CONTENT_TO_ESCO and esco_to_isco which are defined in main scope.
+    if 'CONTENT_TO_ESCO' in locals() and 'esco_to_isco' in locals():
+        generate_transition_matrix(df_clean, CONTENT_TO_ESCO, esco_to_isco)
+    else:
+        print("Cannot generate transition matrix: Mapping dictionaries not found.")
 
 if __name__ == "__main__":
     main()

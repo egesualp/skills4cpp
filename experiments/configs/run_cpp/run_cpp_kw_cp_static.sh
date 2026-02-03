@@ -391,8 +391,8 @@ python -m src.cpp.train_cpp_enhanced_v2_gated \
     --skill_embeddings_dir /dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra95kix2/outputs/skill_index \
     --skill_scores_file $MASTER_SKILL_FILE \
     --encoder_text $ENCODER_TEXT \
-    --output_dir "${OUTPUT_BASE}/job_titles_skills_pjmath_desc_weighted_idf_logpool_adv_gated" \
-    --run_name "job_titles_skills_pjmath_desc_weighted_idf_logpool_adv_gated" \
+    --output_dir "${OUTPUT_BASE}/job_titles_skills_pjmath_desc_weighted_idf_logpool_adv_gated_minmax" \
+    --run_name "job_titles_skills_pjmath_desc_weighted_idf_logpool_adv_gated_minmax" \
     --use_text_history \
     --use_skill_text \
     --use_text_description \
@@ -413,7 +413,8 @@ python -m src.cpp.train_cpp_enhanced_v2_gated \
     --seed 42 \
     --use_advanced \
     --pooling_strategy weighted_idf \
-    --use_skill_path_log_pooling
+    --use_skill_path_log_pooling \
+    --min_max_normalize_skills
 
 #### Skills Only Experiments
 python -m src.cpp.train_cpp_enhanced_v2 \
