@@ -2,9 +2,68 @@ from datasets import load_dataset
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
+from typing import Dict, Tuple, List, Optional
+import re
 
 SEP_TOKEN = "<SEP>"  # Separator token, used to separate sentences in a document pair. This can be model specific.
 DATA_PATH = Path("./data/")
+
+# Master dataset paths for job_id mapping (maps job title + description to unique job_id)
+MASTER_DATASET_PATHS = {
+    'decorte': Path("/dss/dsshome1/02/ra95kix2/thesis/skills4cpp/data/title_pairs_desc/decorte_master_3.csv"),
+    'karrierewege_occ': Path("/dss/dsshome1/02/ra95kix2/thesis/skills4cpp/data/title_pairs_desc/karrierewege_plus_occ_master.csv"),
+    'karrierewege_cp': Path("/dss/dsshome1/02/ra95kix2/thesis/skills4cpp/data/title_pairs_desc/karrierewege_plus_cp_master_3.csv"),
+    # Placeholder for other datasets - add paths as needed
+    'decorte_esco': None,  # Uses ESCO titles, not free text
+    'karrierewege': None,   # Uses ESCO titles, not free text
+    'karrierewege_100k': None,  # Uses ESCO titles, not free text
+}
+
+
+def load_job_id_lookup(master_csv_path: Path) -> Dict[Tuple[str, str], str]:
+    """
+    Load a lookup dictionary mapping (raw_title, raw_description) to job_id.
+    
+    Args:
+        master_csv_path: Path to the master CSV file containing job_id mappings
+        
+    Returns:
+        Dictionary mapping (raw_title.lower(), raw_description.lower()) -> job_id (as string)
+    """
+    df = pd.read_csv(master_csv_path)
+    lookup = {}
+    for _, row in df.iterrows():
+        raw_desc = row['raw_description']
+        if pd.isna(raw_desc):
+            desc_str = ""
+        else:
+            desc_str = str(raw_desc).strip().lower()
+            
+        key = (str(row['raw_title']).strip().lower(), desc_str)
+        lookup[key] = str(row['job_id'])
+    print(f"  > Loaded job_id lookup with {len(lookup)} entries from {master_csv_path}")
+    return lookup
+
+
+def get_job_id(title: str, description: str, lookup: Dict[Tuple[str, str], str]) -> Optional[str]:
+    """
+    Look up job_id for a given title and description.
+    
+    Args:
+        title: Raw job title
+        description: Raw job description
+        lookup: Dictionary from load_job_id_lookup
+        
+    Returns:
+        job_id as string, or None if not found
+    """
+    if description is None:
+        desc_str = ""
+    else:
+        desc_str = str(description).strip().lower()
+        
+    key = (str(title).strip().lower(), desc_str)
+    return lookup.get(key, None)
 
 
 
@@ -65,6 +124,35 @@ def subspans(lst):
             yield lst[j:j + i]
 
 
+def clean_title_remove_dots(title):
+    """Remove three dots if they appear at the start of the job title."""
+    if isinstance(title, str) and title.startswith("..."):
+        if title != "...":
+            return title[3:].lstrip()
+    return title
+
+
+def clean_title_fill(title, description):
+    """If title is '...' and desc contains a 'job_title: ...' pattern, set title from there."""
+    if title == '...' and isinstance(description, str):
+        # Search for the pattern '<something>: <rest of desc>' at the start
+        # Try extracting the prefix before the first colon-space
+        m = re.match(r"([^:]+):", description.strip())
+        if m:
+            extracted_title = m.group(1).strip()
+            if extracted_title and extracted_title != "...":
+                return extracted_title
+    return title
+
+
+def clean_description_remove_prefix(title, description):
+    if isinstance(description, str) and isinstance(title, str):
+        prefix = f"{title}: "
+        if description.startswith(prefix):
+            return description[len(prefix):]
+    return description
+
+
 def load_prepare_karrierewege(minus_last, consider_all_subspans_of_len_at_least_2=False, language='en'):
     """
     Loads and processes the Karrierewege dataset for training.
@@ -75,12 +163,50 @@ def load_prepare_karrierewege(minus_last, consider_all_subspans_of_len_at_least_
         language (str, optional): Specifies the dataset language variant. Defaults to 'en'.
 
     Returns:
-        tuple: (train_pairs, val_pairs, test_pairs) - Prepared document pairs.
+        tuple: (train_pairs, train_job_ids, val_pairs, val_job_ids, test_pairs, test_job_ids)
+               - *_pairs: List of (doc_1, doc_2) tuples
+               - *_job_ids: List of lists, each inner list contains job_ids for jobs in doc_1
     """
+    
+    # Load job_id lookup for free-text variants
+    job_id_lookup = None
+    if language == 'en_free':
+        master_path = MASTER_DATASET_PATHS.get('karrierewege_occ')
+        if master_path and master_path.exists():
+            print(f"Loading job_id lookup for karrierewege_occ dataset...")
+            job_id_lookup = load_job_id_lookup(master_path)
+        else:
+            print(f"Warning: Master dataset not found at {master_path}. job_ids will be None.")
+    elif language == 'en_free_cp':
+        master_path = MASTER_DATASET_PATHS.get('karrierewege_cp')
+        if master_path and master_path.exists():
+            print(f"Loading job_id lookup for karrierewege_cp dataset...")
+            job_id_lookup = load_job_id_lookup(master_path)
+        else:
+            print(f"Warning: Master dataset not found at {master_path}. job_ids will be None.")
+    # For ESCO-based variants (en, esco_100k), job_id_lookup remains None
+
+
 
     def create_pairs_from_dataset(_dataset):
         document_pairs = []
+        all_job_ids = []  # List of lists: job_ids for each doc_1
+        
+        # Additional formatting
         _dataset_df = _dataset.to_pandas()
+        if language == 'en_free_cp':
+            _dataset_df.loc[:, 'new_job_title_en_cp'] = _dataset_df.loc[:, 'new_job_title_en_cp'].apply(clean_title_remove_dots)
+            
+            def apply_fill_missing(row):
+                return clean_title_fill(row['new_job_title_en_cp'], row['new_job_description_en_cp'])
+            _dataset_df.loc[:,'new_job_title_en_cp'] = _dataset_df.apply(apply_fill_missing, axis=1)
+            
+            def apply_remove_prefix(row):
+                return clean_description_remove_prefix(row['new_job_title_en_cp'], row['new_job_description_en_cp'])
+            _dataset_df.loc[:, 'new_job_description_en_cp'] = _dataset_df.apply(apply_remove_prefix, axis=1)
+            c_ids_no_title = _dataset_df.query('new_job_title_en_cp == "..."')._id.unique()
+            _dataset_df = _dataset_df.query('_id not in @c_ids_no_title')
+
         grouped = _dataset_df.groupby('_id')
         print('len grouped', len(grouped))
 
@@ -139,9 +265,12 @@ def load_prepare_karrierewege(minus_last, consider_all_subspans_of_len_at_least_
                         ]
                     )
     
+                    # For ESCO-based variants, job_ids are empty (no master dataset)
+                    doc_1_job_ids = []
           
-                    # Add document pair to list
+                    # Add document pair and job_ids to lists
                     document_pairs.append((doc_1, doc_2))
+                    all_job_ids.append(doc_1_job_ids)
             
             elif language=='en_free' or language == 'de_free' or language == 'en_free_cp':
                 if consider_all_subspans_of_len_at_least_2 and number_of_experiences > 1:
@@ -174,11 +303,21 @@ def load_prepare_karrierewege(minus_last, consider_all_subspans_of_len_at_least_
                             for i in range(_num_experiences_subspan-span_discount)
                         ]
                     )
-                          
-                    # Add document pair to list
-                    document_pairs.append((doc_1,doc_2))
                     
-        return document_pairs
+                    # Collect job_ids for jobs in doc_1 (before concatenation)
+                    doc_1_job_ids = []
+                    if job_id_lookup is not None:
+                        for i in range(_num_experiences_subspan - span_discount):
+                            job_id = get_job_id(_titles[i], _descriptions[i], job_id_lookup)
+                            if job_id is not None:
+                                doc_1_job_ids.append(job_id)
+                            # If job_id not found, we skip it (won't have skills for this job)
+                          
+                    # Add document pair and job_ids to lists
+                    document_pairs.append((doc_1, doc_2))
+                    all_job_ids.append(doc_1_job_ids)
+                    
+        return document_pairs, all_job_ids
     
   
     # Load the dataset
@@ -187,12 +326,12 @@ def load_prepare_karrierewege(minus_last, consider_all_subspans_of_len_at_least_
     elif language == 'en':
         dataset = load_dataset("ElenaSenger/Karrierewege")
 
-    train_pairs = create_pairs_from_dataset(dataset["train"])
-    val_pairs = create_pairs_from_dataset(dataset["validation"])
-    test_pairs = create_pairs_from_dataset(dataset["test"])
+    train_pairs, train_job_ids = create_pairs_from_dataset(dataset["train"])
+    val_pairs, val_job_ids = create_pairs_from_dataset(dataset["validation"])
+    test_pairs, test_job_ids = create_pairs_from_dataset(dataset["test"])
 
 
-    return train_pairs, val_pairs, test_pairs
+    return train_pairs, train_job_ids, val_pairs, val_job_ids, test_pairs, test_job_ids
 
 
 def load_prepare_decorte(minus_last, consider_all_subspans_of_len_at_least_2=False, verbose=False, max_len=16):
@@ -206,9 +345,19 @@ def load_prepare_decorte(minus_last, consider_all_subspans_of_len_at_least_2=Fal
         max_len (int, optional): Maximum length of subspans. Defaults to 16.
 
     Returns:
-        tuple: (train_pairs, val_pairs, test_pairs) - Prepared document pairs.
+        tuple: (train_pairs, train_job_ids, val_pairs, val_job_ids, test_pairs, test_job_ids)
+               - *_pairs: List of (doc_1, doc_2) tuples
+               - *_job_ids: List of lists, each inner list contains job_ids for jobs in doc_1
     """
 
+    # Load job_id lookup from master CSV
+    master_path = MASTER_DATASET_PATHS.get('decorte')
+    job_id_lookup = None
+    if master_path and master_path.exists():
+        print(f"Loading job_id lookup for decorte dataset...")
+        job_id_lookup = load_job_id_lookup(master_path)
+    else:
+        print(f"Warning: Master dataset not found at {master_path}. job_ids will be None.")
 
     # Load the dataset
     dataset = load_dataset("jensjorisdecorte/anonymous-working-histories")
@@ -243,6 +392,8 @@ def load_prepare_decorte(minus_last, consider_all_subspans_of_len_at_least_2=Fal
 
     def create_pairs_from_dataset(_dataset):
         document_pairs = []
+        all_job_ids = []  # List of lists: job_ids for each doc_1
+        
         # Iterate over the dataset
         for example in tqdm(_dataset):
 
@@ -331,17 +482,25 @@ def load_prepare_decorte(minus_last, consider_all_subspans_of_len_at_least_2=Fal
                     ]
                 )
 
+                # Collect job_ids for jobs in doc_1 (before concatenation)
+                doc_1_job_ids = []
+                if job_id_lookup is not None:
+                    for i in range(_num_experiences_subspan - span_discount):
+                        job_id = get_job_id(_titles[i], _descriptions[i], job_id_lookup)
+                        # Always append, even if None, to maintain alignment with doc_1 segments
+                        doc_1_job_ids.append(job_id)
 
-                # Add document pair to list
-                document_pairs.append((doc_1,doc_2))
+                # Add document pair and job_ids to lists
+                document_pairs.append((doc_1, doc_2))
+                all_job_ids.append(doc_1_job_ids)
 
-        return document_pairs
+        return document_pairs, all_job_ids
 
-    train_pairs = create_pairs_from_dataset(dataset["train"])
-    val_pairs = create_pairs_from_dataset(dataset["validation"])
-    test_pairs = create_pairs_from_dataset(dataset["test"])
+    train_pairs, train_job_ids = create_pairs_from_dataset(dataset["train"])
+    val_pairs, val_job_ids = create_pairs_from_dataset(dataset["validation"])
+    test_pairs, test_job_ids = create_pairs_from_dataset(dataset["test"])
 
-    return train_pairs, val_pairs, test_pairs
+    return train_pairs, train_job_ids, val_pairs, val_job_ids, test_pairs, test_job_ids
 
 def load_prepare_decorte_esco(minus_last, consider_all_subspans_of_len_at_least_2=False, verbose=False, max_len = 16):
     """
@@ -354,7 +513,9 @@ def load_prepare_decorte_esco(minus_last, consider_all_subspans_of_len_at_least_
         max_len (int, optional): Maximum length of subspans. Defaults to 16.
 
     Returns:
-        tuple: (train_pairs, val_pairs, test_pairs) - Prepared document pairs.
+        tuple: (train_pairs, train_job_ids, val_pairs, val_job_ids, test_pairs, test_job_ids)
+               - *_pairs: List of (doc_1, doc_2) tuples
+               - *_job_ids: List of lists (empty lists for ESCO-based datasets)
     """
 
 
@@ -393,6 +554,8 @@ def load_prepare_decorte_esco(minus_last, consider_all_subspans_of_len_at_least_
 
     def create_pairs_from_dataset(_dataset):
         document_pairs = []
+        all_job_ids = []  # Empty lists for ESCO-based datasets (no master dataset)
+        
         # Iterate over the dataset
         for example in tqdm(_dataset):
 
@@ -480,16 +643,17 @@ def load_prepare_decorte_esco(minus_last, consider_all_subspans_of_len_at_least_
                     ESCO_uris[_experience_indexes[-1]],
                 )
 
-                # Add document pair to list
-                document_pairs.append((doc_1,doc_2))
+                # Add document pair and empty job_ids to lists
+                document_pairs.append((doc_1, doc_2))
+                all_job_ids.append([])  # Empty list for ESCO-based datasets
 
-        return document_pairs
+        return document_pairs, all_job_ids
 
-    train_pairs = create_pairs_from_dataset(dataset["train"])
-    val_pairs = create_pairs_from_dataset(dataset["validation"])
-    test_pairs = create_pairs_from_dataset(dataset["test"])
+    train_pairs, train_job_ids = create_pairs_from_dataset(dataset["train"])
+    val_pairs, val_job_ids = create_pairs_from_dataset(dataset["validation"])
+    test_pairs, test_job_ids = create_pairs_from_dataset(dataset["test"])
 
-    return train_pairs, val_pairs, test_pairs
+    return train_pairs, train_job_ids, val_pairs, val_job_ids, test_pairs, test_job_ids
 
 
         

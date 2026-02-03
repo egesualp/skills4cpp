@@ -41,6 +41,8 @@ class CareerPathDataset(Dataset):
         encoder_skill = None,
         pre_h_text: Optional[np.ndarray] = None,
         pre_h_skill_text: Optional[np.ndarray] = None,
+        device: Optional[torch.device] = None,
+        pin_embeddings_to_gpu: bool = False,
     ):
         """
         Initialize the CareerPathDataset.
@@ -63,6 +65,8 @@ class CareerPathDataset(Dataset):
             encoder_skill: Optional separate encoder for skills (if None, use encoder)
             pre_h_text: Optional pre-computed text history embeddings [n_samples, embed_dim]
             pre_h_skill_text: Optional pre-computed skill text embeddings [n_samples, embed_dim]
+            device: Device to pin embeddings to (for GPU-resident embeddings)
+            pin_embeddings_to_gpu: If True, move pre-computed embeddings to GPU and keep them there
         """
         self.data_pairs = data_pairs
         self.encoder = encoder
@@ -72,6 +76,8 @@ class CareerPathDataset(Dataset):
         self.esco_skill_text_map = esco_skill_text_map
         self.skill_properties_map = skill_properties_map
         self.all_vocabs = all_vocabs
+        self.device = device
+        self.pin_embeddings_to_gpu = pin_embeddings_to_gpu
 
         # Configuration
         self.use_skill_description = use_skill_description
@@ -82,18 +88,26 @@ class CareerPathDataset(Dataset):
         self.include_skill_text = include_skill_text
         self.include_structured = include_structured
 
-        # Pre-computed embeddings
-        self.pre_h_text = pre_h_text
-        self.pre_h_skill_text = pre_h_skill_text
+        # Pre-computed embeddings - optimized for GPU or shared memory
+        self._setup_embeddings(pre_h_text, pre_h_skill_text)
         
         # Pre-compute dimensions
         self.embed_dim = encoder.get_sentence_embedding_dimension()
+        # Skill embedding dim: infer from precomputed embeddings or encoder
+        if pre_h_skill_text is not None:
+            self.skill_embed_dim = pre_h_skill_text.shape[1]
+        elif encoder_skill is not None:
+            self.skill_embed_dim = encoder_skill.get_sentence_embedding_dimension()
+        else:
+            self.skill_embed_dim = self.embed_dim
+        
         self.structured_dims = {
             key: len(vocab) for key, vocab in all_vocabs.items()
         }
         
         # Pre-compute zero vectors for padding
         self.zero_vec_text = np.zeros(self.embed_dim, dtype=np.float32)
+        self.zero_vec_skill = np.zeros(self.skill_embed_dim, dtype=np.float32)
         self.zero_vecs_structured = {
             key: np.zeros(dim, dtype=np.float32) 
             for key, dim in self.structured_dims.items()
@@ -101,6 +115,41 @@ class CareerPathDataset(Dataset):
         
         # Filter out samples with missing targets
         self._filter_valid_samples()
+    
+    def _setup_embeddings(self, pre_h_text, pre_h_skill_text):
+        """
+        Setup pre-computed embeddings with optimizations:
+        - GPU pinning: Move embeddings to GPU to avoid CPU->GPU transfers
+        - Shared memory: Use torch shared memory for multi-process DataLoader
+        """
+        if self.pin_embeddings_to_gpu and self.device is not None and self.device.type == 'cuda':
+            # Solution 3: Move embeddings to GPU and keep them there
+            print(f"📌 Pinning embeddings to GPU ({self.device})...")
+            
+            if pre_h_text is not None:
+                self.pre_h_text = torch.from_numpy(pre_h_text).float().to(self.device)
+                print(f"  ✓ Text embeddings on GPU: {self.pre_h_text.shape} ({self.pre_h_text.element_size() * self.pre_h_text.nelement() / 1024**3:.2f} GB)")
+            else:
+                self.pre_h_text = None
+            
+            if pre_h_skill_text is not None:
+                self.pre_h_skill_text = torch.from_numpy(pre_h_skill_text).float().to(self.device)
+                print(f"  ✓ Skill embeddings on GPU: {self.pre_h_skill_text.shape} ({self.pre_h_skill_text.element_size() * self.pre_h_skill_text.nelement() / 1024**3:.2f} GB)")
+            else:
+                self.pre_h_skill_text = None
+        else:
+            # Solution 4: Use shared memory for multi-process DataLoader
+            if pre_h_text is not None:
+                self.pre_h_text = torch.from_numpy(pre_h_text).float().share_memory_()
+                print(f"  ✓ Text embeddings in shared memory: {self.pre_h_text.shape}")
+            else:
+                self.pre_h_text = None
+            
+            if pre_h_skill_text is not None:
+                self.pre_h_skill_text = torch.from_numpy(pre_h_skill_text).float().share_memory_()
+                print(f"  ✓ Skill embeddings in shared memory: {self.pre_h_skill_text.shape}")
+            else:
+                self.pre_h_skill_text = None
     
     def _filter_valid_samples(self):
         """Remove samples where target embedding is not available."""
@@ -138,7 +187,8 @@ class CareerPathDataset(Dataset):
         # --- 1. Generate h_text (Text History) ---
         if self.include_text:
             if self.pre_h_text is not None:
-                features['h_text'] = torch.from_numpy(self.pre_h_text[idx]).float()
+                # Embeddings are already torch tensors (GPU or shared memory)
+                features['h_text'] = self.pre_h_text[idx]
             else:
                 h_text = self.encoder.encode(history_doc, convert_to_numpy=True)
                 features['h_text'] = torch.from_numpy(h_text).float()
@@ -147,48 +197,69 @@ class CareerPathDataset(Dataset):
         y_vector = self.Y_target_dict[target_doc]
         features['y'] = torch.from_numpy(y_vector).float()
 
-        # --- 3. Extract skills from history ---
-        # Handle both formatted documents (e.g., "role: cook\n description: ...")
-        # and plain titles (e.g., "cook " or "cook <SEP>head chef ")
-        raw_titles_in_history = re.findall(r"role: (.*?)\n", history_doc)
-        
-        # If no matches found, assume it's plain title(s), possibly with <SEP> separator
-        if not raw_titles_in_history:
-            # Import SEP_TOKEN from utils
-            from cpp import utils
-            raw_titles_in_history = [t.strip() for t in history_doc.split(utils.SEP_TOKEN) if t.strip()]
-        
-        skill_info_list = []
-        for title in raw_titles_in_history:
-            # Normalize title to match mapping file format (lowercase + stripped)
-            title_normalized = title.strip().lower()
-            if title_normalized in self.job_skill_map:
-                skill_info_list.extend(self.job_skill_map[title_normalized])
-
-        # --- Handle cases with NO skills found ---
-        if not skill_info_list:
-            if self.include_skill_text:
-                features['h_skill_text'] = torch.from_numpy(self.zero_vec_text).float()
-            if self.include_structured:
-                for key in self.all_vocabs.keys():
-                    features[f'h_structured_{key}'] = torch.from_numpy(
-                        self.zero_vecs_structured[key]
-                    ).float()
-            return features
-
-        # --- 4. Generate h_skill_text ---
+        # --- 3. Generate h_skill_text ---
+        # PRIORITY: Use pre-computed embeddings if available (computed with job_ids in v3)
         if self.include_skill_text:
             if self.pre_h_skill_text is not None:
-                features['h_skill_text'] = torch.from_numpy(self.pre_h_skill_text[idx]).float()
+                # Pre-computed embeddings take priority (e.g., from build_last_job_skill_embeddings)
+                features['h_skill_text'] = self.pre_h_skill_text[idx]
             else:
-                h_skill_text = self._generate_skill_text_embedding(skill_info_list)
-                features['h_skill_text'] = torch.from_numpy(h_skill_text).float()
+                # Fallback: Extract skills from history using title lookup
+                # Handle both formatted documents (e.g., "role: cook\n description: ...")
+                # and plain titles (e.g., "cook " or "cook <SEP>head chef ")
+                raw_titles_in_history = re.findall(r"role: (.*?)\n", history_doc)
+                
+                # If no matches found, assume it's plain title(s), possibly with <SEP> separator
+                if not raw_titles_in_history:
+                    from cpp import utils
+                    raw_titles_in_history = [t.strip() for t in history_doc.split(utils.SEP_TOKEN) if t.strip()]
+                
+                skill_info_list = []
+                for title in raw_titles_in_history:
+                    title_normalized = title.strip().lower()
+                    if title_normalized in self.job_skill_map:
+                        skill_info_list.extend(self.job_skill_map[title_normalized])
+                
+                if skill_info_list:
+                    h_skill_text = self._generate_skill_text_embedding(skill_info_list)
+                    features['h_skill_text'] = torch.from_numpy(h_skill_text).float()
+                else:
+                    # No skills found - use zero vector
+                    zero_skill = torch.from_numpy(self.zero_vec_skill).float()
+                    if self.pin_embeddings_to_gpu and self.device is not None:
+                        zero_skill = zero_skill.to(self.device)
+                    features['h_skill_text'] = zero_skill
+
+        # --- 4. Extract skills for structured features ---
+        # This section still uses title lookup for structured features
+        skill_info_list_for_struct = []
+        if self.include_structured:
+            raw_titles_in_history = re.findall(r"role: (.*?)\n", history_doc)
+            if not raw_titles_in_history:
+                from cpp import utils
+                raw_titles_in_history = [t.strip() for t in history_doc.split(utils.SEP_TOKEN) if t.strip()]
+            
+            for title in raw_titles_in_history:
+                title_normalized = title.strip().lower()
+                if title_normalized in self.job_skill_map:
+                    skill_info_list_for_struct.extend(self.job_skill_map[title_normalized])
         
         # --- 5. Generate h_structured ---
         if self.include_structured:
-            structured_vectors = self._generate_structured_features(skill_info_list)
-            for key, vec in structured_vectors.items():
-                features[f'h_structured_{key}'] = torch.from_numpy(vec).float()
+            if skill_info_list_for_struct:
+                structured_vectors = self._generate_structured_features(skill_info_list_for_struct)
+                for key, vec in structured_vectors.items():
+                    vec_tensor = torch.from_numpy(vec).float()
+                    if self.pin_embeddings_to_gpu and self.device is not None:
+                        vec_tensor = vec_tensor.to(self.device)
+                    features[f'h_structured_{key}'] = vec_tensor
+            else:
+                # No skills found for structured features - use zero vectors
+                for key in self.all_vocabs.keys():
+                    zero_struct = torch.from_numpy(self.zero_vecs_structured[key]).float()
+                    if self.pin_embeddings_to_gpu and self.device is not None:
+                        zero_struct = zero_struct.to(self.device)
+                    features[f'h_structured_{key}'] = zero_struct
         
         return features
     
@@ -231,7 +302,7 @@ class CareerPathDataset(Dataset):
         
         # Pool embeddings
         if not strings_to_embed:
-            return self.zero_vec_text
+            return self.zero_vec_skill
         
         # Use skill-specific encoder if available
         skill_embeddings = self.encoder_skill.encode(strings_to_embed, convert_to_numpy=True)
@@ -290,11 +361,26 @@ def collate_career_path_batch(batch: List[Dict[str, torch.Tensor]]) -> Dict[str,
     
     # Get all keys from the first sample
     keys = batch[0].keys()
+
+    # Determine target device (use device of first tensor we find)
+    target_device = None
+    for sample in batch:
+        for key, value in sample.items():
+            if value.is_cuda:
+                target_device = value.device
+                break
+        if target_device is not None:
+            break
     
     # Stack tensors for each key
     batched = {}
     for key in keys:
-        batched[key] = torch.stack([sample[key] for sample in batch])
+        tensors = [sample[key] for sample in batch]
+        # Move all tensors to target device if one was GPU
+        if target_device is not None:
+            tensors = [t.to(target_device) if not t.is_cuda else t for t in tensors]
+        batched[key] = torch.stack(tensors)
+
     
     return batched
 

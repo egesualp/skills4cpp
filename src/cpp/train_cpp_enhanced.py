@@ -45,9 +45,8 @@ try:
         load_all_vocabs,
         load_job_and_skill_data,
         precompute_target_embeddings,
-        precompute_input_embeddings
+        precompute_input_embeddings,
     )
-    from src.cpp.generate_embeddings import get_or_compute_embeddings
 except ImportError as e:
     print(f"Error: Required modules not found. {e}")
     sys.exit(1)
@@ -747,18 +746,76 @@ def main():
     logger.info(f"  > Test coverage: {100*test_coverage:.1f}% (informational only)")
     logger.info("")
     
-    # --- Step 4: Get or compute embeddings (with caching) ---
-    (Y_target_dict, Y_target_all, output_dim,
-     train_pairs, train_h_text, train_h_skill,
-     val_pairs, val_h_text, val_h_skill,
-     test_pairs, test_h_text, test_h_skill) = get_or_compute_embeddings(
-        train_pairs, val_pairs, test_pairs,
-        encoder_text, encoder_skill,
-        job_skill_map, esco_skill_text_map,
-        args,
-        precompute_target_embeddings,
-        precompute_input_embeddings
+    # --- Step 4: Compute embeddings (with caching for skill embeddings) ---
+    logger.info("[4/7] Computing embeddings...")
+    
+    # Ensure cache directory exists
+    os.makedirs(args.embeddings_cache_dir, exist_ok=True)
+    encoder_skill_name = args.encoder_skill.split('/')[-1] if args.encoder_skill else args.encoder_text.split('/')[-1]
+    
+    # 4a: Compute target embeddings
+    logger.info("  [4a] Computing target embeddings...")
+    all_target_labels = list(set([t for _, t in train_pairs + val_pairs + test_pairs]))
+    Y_target_dict, Y_target_all = precompute_target_embeddings(
+        encoder_text, 
+        all_target_labels, 
+        show_progress=True,
+        cache_dir=args.embeddings_cache_dir,
+        encoder_name=args.encoder_text.split('/')[-1],
+        force_recompute=args.force_recompute,
     )
+    output_dim = Y_target_all.shape[1]
+    logger.info(f"  ✓ Target embedding dim: {output_dim}\n")
+    
+    # 4b: Compute input embeddings (text history + skill text)
+    logger.info("  [4b] Computing input embeddings for train set...")
+    train_pairs, train_h_text, train_h_skill = precompute_input_embeddings(
+        train_pairs, Y_target_dict, encoder_text, encoder_skill,
+        job_skill_map, esco_skill_text_map,
+        use_skill_description=args.use_skill_description,
+        pooling_strategy=args.pooling_strategy,
+        alpha=args.alpha, beta=args.beta,
+        use_text_history=args.use_text_history,
+        use_skill_text=args.use_skill_text,
+        use_skill_path_log_pooling=getattr(args, 'use_skill_path_log_pooling', False),
+        skill_path_alpha_decay=getattr(args, 'skill_path_alpha_decay', 0.5),
+        cache_dir=args.embeddings_cache_dir,
+        encoder_skill_name=encoder_skill_name,
+        force_recompute=args.force_recompute,
+    )
+    
+    logger.info("  [4c] Computing input embeddings for val set...")
+    val_pairs, val_h_text, val_h_skill = precompute_input_embeddings(
+        val_pairs, Y_target_dict, encoder_text, encoder_skill,
+        job_skill_map, esco_skill_text_map,
+        use_skill_description=args.use_skill_description,
+        pooling_strategy=args.pooling_strategy,
+        alpha=args.alpha, beta=args.beta,
+        use_text_history=args.use_text_history,
+        use_skill_text=args.use_skill_text,
+        use_skill_path_log_pooling=getattr(args, 'use_skill_path_log_pooling', False),
+        skill_path_alpha_decay=getattr(args, 'skill_path_alpha_decay', 0.5),
+        cache_dir=args.embeddings_cache_dir,
+        encoder_skill_name=encoder_skill_name,
+        force_recompute=False,  # Already cached from train set
+    )
+    
+    logger.info("  [4d] Computing input embeddings for test set...")
+    test_pairs, test_h_text, test_h_skill = precompute_input_embeddings(
+        test_pairs, Y_target_dict, encoder_text, encoder_skill,
+        job_skill_map, esco_skill_text_map,
+        use_skill_description=args.use_skill_description,
+        pooling_strategy=args.pooling_strategy,
+        alpha=args.alpha, beta=args.beta,
+        use_text_history=args.use_text_history,
+        use_skill_text=args.use_skill_text,
+        use_skill_path_log_pooling=getattr(args, 'use_skill_path_log_pooling', False),
+        skill_path_alpha_decay=getattr(args, 'skill_path_alpha_decay', 0.5),
+        cache_dir=args.embeddings_cache_dir,
+        encoder_skill_name=encoder_skill_name,
+        force_recompute=False,  # Already cached from train set
+    )
+    logger.info("  ✓ All input embeddings computed\n")
     
     # --- Step 5: Create datasets ---
     logger.info("[6/7] Creating datasets...")

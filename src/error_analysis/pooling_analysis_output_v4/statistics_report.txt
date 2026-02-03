@@ -1,0 +1,199 @@
+================================================================================
+POOLING METHOD ANALYSIS - COMPREHENSIVE STATISTICAL REPORT
+================================================================================
+
+--- OVERALL METRICS ---
+  TEXT    : Acc@1 = 18.59%, MRR = 0.2657, Median Rank = 24
+  SKILL   : Acc@1 = 14.93%, MRR = 0.2222, Median Rank = 38
+  HYBRID  : Acc@1 = 17.98%, MRR = 0.2603, Median Rank = 20
+
+--- SKILL GENERICNESS STATISTICS ---
+  Mean genericness: 0.4796 (std: 0.0508)
+  Mean skill score: 0.5986 (std: 0.0669)
+  Mean num skills: 295.77 (std: 208.34)
+
+--- DETAILED FREQUENCY STATISTICS (Per Career Path) ---
+  [ESCO Taxonomy Source]
+  min_freq    : mean=1.31, std=0.58, median=1.00
+  median_freq : mean=23.77, std=9.51, median=21.50
+  max_freq    : mean=335.31, std=33.01, median=347.00
+  avg_freq    : mean=45.96, std=11.29, median=45.20
+
+  [Decorte Dataset Source]
+  decorte_min_freq    : mean=34.63, std=48.78, median=17.00
+  decorte_median_freq : mean=422.24, std=198.47, median=428.00
+  decorte_max_freq    : mean=4078.16, std=741.29, median=4516.00
+  decorte_avg_freq    : mean=628.85, std=203.04, median=643.01
+
+--- POOLING STRATEGY ANALYSIS ---
+  MEAN           :
+    Effective skills: mean=295.77, std=208.34, median=238.50
+  WEIGHTED_MEAN  :
+    Effective skills: mean=283.33, std=200.23, median=229.17
+  WEIGHTED_IDF   :
+    Effective skills: mean=277.46, std=196.25, median=224.52
+
+--- CORRELATION ANALYSIS ---
+  TEXT     confidence vs genericness: r = -0.1601 (p = 8.0922e-12) ***
+  SKILL    confidence vs genericness: r = -0.1376 (p = 4.4862e-09) ***
+  HYBRID   confidence vs genericness: r = -0.1447 (p = 6.8158e-10) ***
+
+--- GENERICNESS BY PREDICTION CORRECTNESS (t-tests) ---
+  TEXT    : Correct mean = 0.4644, Incorrect mean = 0.4831
+            t = -6.131, p = 1.0732e-09 ***
+  SKILL   : Correct mean = 0.4604, Incorrect mean = 0.4830
+            t = -6.807, p = 1.3509e-11 ***
+  HYBRID  : Correct mean = 0.4625, Incorrect mean = 0.4834
+            t = -6.802, p = 1.3993e-11 ***
+
+--- MEDIAN FREQUENCY BY PREDICTION CORRECTNESS (t-tests) ---
+  TEXT    : Correct mean = 21.19, Incorrect mean = 24.36
+            t = -5.554, p = 3.2132e-08 ***
+  SKILL   : Correct mean = 20.49, Incorrect mean = 24.34
+            t = -6.200, p = 6.9809e-10 ***
+  HYBRID  : Correct mean = 20.72, Incorrect mean = 24.44
+            t = -6.438, p = 1.5438e-10 ***
+
+--- SKILL SCORE QUALITY IMPACT (Quartiles) ---
+  Q1 (Low) [0.2507 - 0.5600]:
+    TEXT    : Acc@1 = 11.75%, MRR = 0.1927
+    SKILL   : Acc@1 = 6.87%, MRR = 0.1353
+    HYBRID  : Acc@1 = 12.64%, MRR = 0.1976
+  Q2 [0.5600 - 0.6010]:
+    TEXT    : Acc@1 = 17.11%, MRR = 0.2524
+    SKILL   : Acc@1 = 8.89%, MRR = 0.1714
+    HYBRID  : Acc@1 = 15.33%, MRR = 0.2340
+  Q3 [0.6010 - 0.6456]:
+    TEXT    : Acc@1 = 19.78%, MRR = 0.2700
+    SKILL   : Acc@1 = 19.78%, MRR = 0.2616
+    HYBRID  : Acc@1 = 19.33%, MRR = 0.2716
+  Q4 (High) [0.6456 - 0.7714]:
+    TEXT    : Acc@1 = 25.72%, MRR = 0.3478
+    SKILL   : Acc@1 = 24.17%, MRR = 0.3203
+    HYBRID  : Acc@1 = 24.61%, MRR = 0.3378
+
+--- SKILL GENERICNESS IMPACT (Quartiles - using ESCO) ---
+  Q1 (Specific) [0.3158 - 0.4442]:
+    TEXT    : Acc@1 = 27.72%, MRR = 0.3593
+    SKILL   : Acc@1 = 22.39%, MRR = 0.3109
+    HYBRID  : Acc@1 = 27.94%, MRR = 0.3593
+  Q2 [0.4442 - 0.4770]:
+    TEXT    : Acc@1 = 20.67%, MRR = 0.2933
+    SKILL   : Acc@1 = 18.00%, MRR = 0.2487
+    HYBRID  : Acc@1 = 19.78%, MRR = 0.2842
+  Q3 [0.4770 - 0.5106]:
+    TEXT    : Acc@1 = 14.89%, MRR = 0.2228
+    SKILL   : Acc@1 = 12.67%, MRR = 0.1890
+    HYBRID  : Acc@1 = 14.00%, MRR = 0.2181
+  Q4 (Generic) [0.5106 - 0.6739]:
+    TEXT    : Acc@1 = 11.09%, MRR = 0.1875
+    SKILL   : Acc@1 = 6.65%, MRR = 0.1401
+    HYBRID  : Acc@1 = 10.20%, MRR = 0.1793
+
+--- SKILL GENERICNESS IMPACT (Quartiles - using Decorte Dataset) ---
+  Q1 (Specific) [0.1718 - 0.6277]:
+    TEXT    : Acc@1 = 11.75%, MRR = 0.1809
+    SKILL   : Acc@1 = 10.20%, MRR = 0.1579
+    HYBRID  : Acc@1 = 12.20%, MRR = 0.1852
+  Q2 [0.6277 - 0.6806]:
+    TEXT    : Acc@1 = 16.89%, MRR = 0.2481
+    SKILL   : Acc@1 = 11.11%, MRR = 0.1793
+    HYBRID  : Acc@1 = 16.44%, MRR = 0.2377
+  Q3 [0.6806 - 0.7193]:
+    TEXT    : Acc@1 = 20.89%, MRR = 0.2929
+    SKILL   : Acc@1 = 14.89%, MRR = 0.2372
+    HYBRID  : Acc@1 = 19.33%, MRR = 0.2815
+  Q4 (Generic) [0.7193 - 0.7881]:
+    TEXT    : Acc@1 = 24.83%, MRR = 0.3411
+    SKILL   : Acc@1 = 23.50%, MRR = 0.3142
+    HYBRID  : Acc@1 = 23.95%, MRR = 0.3366
+
+--- POOLING WEIGHT CONCENTRATION IMPACT ---
+  Q1 (Concentrated) [33.9525 - 121.9657]:
+    TEXT    : Acc@1 = 15.30%, MRR = 0.2286
+    SKILL   : Acc@1 = 14.19%, MRR = 0.2056
+    HYBRID  : Acc@1 = 15.30%, MRR = 0.2293
+  Q2 [121.9657 - 224.5205]:
+    TEXT    : Acc@1 = 18.22%, MRR = 0.2679
+    SKILL   : Acc@1 = 13.78%, MRR = 0.2124
+    HYBRID  : Acc@1 = 16.67%, MRR = 0.2589
+  Q3 [224.5205 - 381.5966]:
+    TEXT    : Acc@1 = 20.89%, MRR = 0.2941
+    SKILL   : Acc@1 = 17.56%, MRR = 0.2529
+    HYBRID  : Acc@1 = 20.89%, MRR = 0.2904
+  Q4 (Dispersed) [381.5966 - 1197.1970]:
+    TEXT    : Acc@1 = 19.96%, MRR = 0.2724
+    SKILL   : Acc@1 = 14.19%, MRR = 0.2178
+    HYBRID  : Acc@1 = 19.07%, MRR = 0.2624
+
+--- IDF SOURCE COMPARISON (ESCO vs DECORTE) ---
+  This compares IDF scores computed from two different sources:
+    • ESCO: From ESCO taxonomy (official occupation-skill relations)
+    • Decorte: From actual job postings in the dataset
+
+  Common skills in both sources: 11140
+  Skills only in ESCO: 2352
+  Skills only in Decorte: 0
+
+  Correlation between sources:
+    Pearson r = 0.6633 (p = 0.0000e+00)***
+    Spearman ρ = 0.6301 (p = 0.0000e+00)***
+
+  Interpretation: Moderate agreement - some skills have different frequencies in real-world data.
+
+  Decorte Frequency Statistics (per career path):
+    decorte_min_freq    : mean=34.63, std=48.78
+    decorte_median_freq : mean=422.24, std=198.47
+    decorte_max_freq    : mean=4078.16, std=741.29
+    decorte_avg_freq    : mean=628.85, std=203.04
+
+--- EXTREME SKILLS (ESCO-based Genericness / Taxonomy) ---
+  Top 10 Most Generic (Most Common in Taxonomy) Skills:
+    1.0000: create solutions to problems
+    0.9972: use different communication channels
+    0.9943: manage staff
+    0.9861: manage budgets
+    0.9861: keep records of work progress
+    0.9837: have computer literacy
+    0.9819: quality standards
+    0.9757: troubleshoot
+    0.9626: speak different languages
+    0.9486: identify customer's needs
+
+  Top 10 Least Generic (Rare in Taxonomy) Skills:
+    0.0000: procure time sheet approval
+    0.0000: prepare soda-ash
+    0.0000: microchip scanners
+    0.0000: assess your competencies in leading community arts
+    0.0000: remove old caulking
+    0.0000: clean patients' ear canals
+    0.0000: treat vehicle fabrics
+    0.0000: cable-propelled transit
+    0.0000: negotiate rights of use
+    0.0000: design clocks
+
+--- EXTREME SKILLS (Decorte-based Genericness / Dataset) ---
+  Top 10 Most Generic (Most Common) Skills:
+    1.0000: manage budgets
+    0.9752: manage staff
+    0.9601: use different communication channels
+    0.9534: create solutions to problems
+    0.9469: liaise with managers
+    0.9463: company policies
+    0.9420: build business relationships
+    0.9405: train employees
+    0.9389: recruit employees
+    0.9288: communicate with customers
+
+  Top 10 Least Generic (Rare) Skills:
+    0.0000: treat vehicle fabrics
+    0.0000: prevent technical problems with flying equipment
+    0.0000: tuning techniques
+    0.0000: assist customers in selecting music and video recordings
+    0.0000: operate perforating machine
+    0.0000: tend automatic sewing machines
+    0.0000: monitor aquaculture feeding behaviour
+    0.0000: coordinate the running of a performance
+    0.0000: operate board slotting machine
+    0.0000: observe fish disease symptoms
+================================================================================

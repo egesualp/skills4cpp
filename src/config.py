@@ -16,6 +16,8 @@ class ModelConfig:
     proj_dim: Optional[int]
     asymmetric: bool
     normalize_output: bool
+    job_text_key: Optional[str] = None
+    esco_text_key: Optional[str] = None
 
 
 @dataclass
@@ -140,7 +142,9 @@ def dump_config(config: Config, out_dir: str) -> str:
             'hf_id': config.model.hf_id,
             'proj_dim': config.model.proj_dim,
             'asymmetric': config.model.asymmetric,
-            'normalize_output': config.model.normalize_output
+            'normalize_output': config.model.normalize_output,
+            'job_text_key': config.model.job_text_key,
+            'esco_text_key': config.model.esco_text_key,
         },
         'data': {
             'pairs_path': config.data.pairs_path,

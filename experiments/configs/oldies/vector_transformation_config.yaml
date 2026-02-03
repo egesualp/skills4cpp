@@ -1,0 +1,18 @@
+model:
+  embedding_model_transformation: "sentence-transformers/all-MiniLM-L6-v2"
+
+data:
+  data_type: "karrierewege_100k"
+
+neural:
+  batch_size: 16
+  learning_rate: 2.0e-5
+  epochs: 10
+  patience: 2
+  hidden_sizes: [512]
+  dropout: False
+  dropout_rate: 0.1
+
+output:
+  path_neural_transformation_model: "results/vector_transformation_model.pth"
+

@@ -1,0 +1,404 @@
+{
+  "token_analysis": {
+    "with_desc": {
+      "name": "Title + Description",
+      "n_samples": 50000,
+      "max_seq_length": 384,
+      "doc1": {
+        "mean": 248.91494,
+        "median": 195.0,
+        "std": 177.19912963893586,
+        "min": 23,
+        "max": 2312,
+        "p90": 468.0,
+        "p95": 593.0,
+        "p99": 909.0,
+        "truncated_count": 8041,
+        "truncated_pct": 16.082,
+        "avg_tokens_lost": 184.8388260166646,
+        "max_tokens_lost": 1928
+      },
+      "doc2": {
+        "mean": 58.65996,
+        "median": 55.0,
+        "std": 22.042018346748556,
+        "min": 12,
+        "max": 159,
+        "p90": 88.0,
+        "p95": 94.0,
+        "p99": 118.0,
+        "truncated_count": 0,
+        "truncated_pct": 0.0,
+        "avg_tokens_lost": 0,
+        "max_tokens_lost": 0
+      }
+    },
+    "title_only": {
+      "name": "Title Only",
+      "n_samples": 50000,
+      "max_seq_length": 384,
+      "doc1": {
+        "mean": 23.748,
+        "median": 19.0,
+        "std": 16.78312771803873,
+        "min": 7,
+        "max": 197,
+        "p90": 45.0,
+        "p95": 57.0,
+        "p99": 88.0,
+        "truncated_count": 0,
+        "truncated_pct": 0.0,
+        "avg_tokens_lost": 0,
+        "max_tokens_lost": 0
+      },
+      "doc2": {
+        "mean": 4.67454,
+        "median": 4.0,
+        "std": 1.0721081048103311,
+        "min": 3,
+        "max": 12,
+        "p90": 6.0,
+        "p95": 7.0,
+        "p99": 8.0,
+        "truncated_count": 0,
+        "truncated_pct": 0.0,
+        "avg_tokens_lost": 0,
+        "max_tokens_lost": 0
+      }
+    }
+  },
+  "semantic_redundancy": {
+    "n_samples": 10000,
+    "history_similarity": {
+      "mean": 0.6247921586036682,
+      "median": 0.6041029691696167,
+      "std": 0.13391301035881042,
+      "min": 0.1270780712366104,
+      "max": 0.9908400177955627,
+      "p10": 0.47771963477134705,
+      "p25": 0.5290796756744385
+    },
+    "target_similarity": {
+      "mean": 0.9402949213981628,
+      "median": 0.9497256278991699,
+      "std": 0.03424309566617012,
+      "min": 0.6883617639541626,
+      "max": 0.9808543920516968,
+      "p10": 0.8976003527641296,
+      "p25": 0.9345688819885254
+    }
+  },
+  "leakage_analysis": {
+    "with_subspans": {
+      "name": "Subspan-Augmented Data",
+      "n_samples": 1227896,
+      "direct_leakage": {
+        "count": 1227896,
+        "rate": 1.0,
+        "percentage": 100.0
+      },
+      "partial_leakage": {
+        "count": 1227896,
+        "rate": 1.0,
+        "percentage": 100.0
+      },
+      "history_length_stats": {
+        "mean": 4.33623531634601,
+        "median": 3.0,
+        "min": 2,
+        "max": 29
+      },
+      "leak_by_length": {
+        "2": {
+          "total": 362153,
+          "leaked": 362153
+        },
+        "3": {
+          "total": 272153,
+          "leaked": 272153
+        },
+        "4": {
+          "total": 182153,
+          "leaked": 182153
+        },
+        "5": {
+          "total": 123969,
+          "leaked": 123969
+        },
+        "6": {
+          "total": 85459,
+          "leaked": 85459
+        },
+        "7": {
+          "total": 59056,
+          "leaked": 59056
+        },
+        "8": {
+          "total": 41219,
+          "leaked": 41219
+        },
+        "9": {
+          "total": 28878,
+          "leaked": 28878
+        },
+        "10": {
+          "total": 20396,
+          "leaked": 20396
+        },
+        "11": {
+          "total": 14470,
+          "leaked": 14470
+        }
+      },
+      "examples": [
+        {
+          "target": "domestic cleaner",
+          "history_titles": [
+            "domestic cleaner",
+            "domestic cleaner"
+          ],
+          "history_length": 2
+        },
+        {
+          "target": "domestic cleaner",
+          "history_titles": [
+            "domestic cleaner",
+            "domestic cleaner"
+          ],
+          "history_length": 2
+        },
+        {
+          "target": "domestic cleaner",
+          "history_titles": [
+            "domestic cleaner",
+            "domestic cleaner"
+          ],
+          "history_length": 2
+        },
+        {
+          "target": "street food vendor",
+          "history_titles": [
+            "domestic cleaner",
+            "street food vendor"
+          ],
+          "history_length": 2
+        },
+        {
+          "target": "wood caulker",
+          "history_titles": [
+            "street food vendor",
+            "wood caulker"
+          ],
+          "history_length": 2
+        },
+        {
+          "target": "garden labourer",
+          "history_titles": [
+            "wood caulker",
+            "garden labourer"
+          ],
+          "history_length": 2
+        },
+        {
+          "target": "wood caulker",
+          "history_titles": [
+            "garden labourer",
+            "wood caulker"
+          ],
+          "history_length": 2
+        },
+        {
+          "target": "garden labourer",
+          "history_titles": [
+            "wood caulker",
+            "garden labourer"
+          ],
+          "history_length": 2
+        },
+        {
+          "target": "garden labourer",
+          "history_titles": [
+            "garden labourer",
+            "garden labourer"
+          ],
+          "history_length": 2
+        },
+        {
+          "target": "domestic cleaner",
+          "history_titles": [
+            "domestic cleaner",
+            "domestic cleaner",
+            "domestic cleaner"
+          ],
+          "history_length": 3
+        }
+      ]
+    },
+    "clean_test": {
+      "name": "Clean Test Data",
+      "n_samples": 10000,
+      "direct_leakage": {
+        "count": 10000,
+        "rate": 1.0,
+        "percentage": 100.0
+      },
+      "partial_leakage": {
+        "count": 10000,
+        "rate": 1.0,
+        "percentage": 100.0
+      },
+      "history_length_stats": {
+        "mean": 5.0497,
+        "median": 4.0,
+        "min": 3,
+        "max": 29
+      },
+      "leak_by_length": {
+        "3": {
+          "total": 3502,
+          "leaked": 3502
+        },
+        "4": {
+          "total": 2123,
+          "leaked": 2123
+        },
+        "5": {
+          "total": 1401,
+          "leaked": 1401
+        },
+        "6": {
+          "total": 933,
+          "leaked": 933
+        },
+        "7": {
+          "total": 654,
+          "leaked": 654
+        },
+        "8": {
+          "total": 442,
+          "leaked": 442
+        },
+        "9": {
+          "total": 273,
+          "leaked": 273
+        },
+        "10": {
+          "total": 204,
+          "leaked": 204
+        },
+        "11": {
+          "total": 138,
+          "leaked": 138
+        },
+        "12": {
+          "total": 97,
+          "leaked": 97
+        }
+      },
+      "examples": [
+        {
+          "target": "mechanical engineering technician",
+          "history_titles": [
+            "sales engineer",
+            "sales engineer",
+            "mechanical engineering technician"
+          ],
+          "history_length": 3
+        },
+        {
+          "target": "mover",
+          "history_titles": [
+            "building construction worker",
+            "mover",
+            "inventory coordinator",
+            "mover"
+          ],
+          "history_length": 4
+        },
+        {
+          "target": "vehicle maintenance attendant",
+          "history_titles": [
+            "foundry operative",
+            "foundry operative",
+            "vehicle maintenance attendant"
+          ],
+          "history_length": 3
+        },
+        {
+          "target": "product quality controller",
+          "history_titles": [
+            "building cleaner",
+            "garden labourer",
+            "domestic cleaner",
+            "product quality controller"
+          ],
+          "history_length": 4
+        },
+        {
+          "target": "motor vehicle parts assembler",
+          "history_titles": [
+            "building construction worker",
+            "building construction worker",
+            "garden labourer",
+            "garden labourer",
+            "motor vehicle parts assembler"
+          ],
+          "history_length": 5
+        },
+        {
+          "target": "construction manager",
+          "history_titles": [
+            "cargo vehicle driver",
+            "cargo vehicle driver",
+            "construction manager",
+            "construction manager",
+            "construction manager"
+          ],
+          "history_length": 5
+        },
+        {
+          "target": "higher education lecturer",
+          "history_titles": [
+            "business manager",
+            "business manager",
+            "business manager",
+            "higher education lecturer"
+          ],
+          "history_length": 4
+        },
+        {
+          "target": "kitchen porter",
+          "history_titles": [
+            "domestic housekeeper",
+            "shelf filler",
+            "shelf filler",
+            "sales assistant",
+            "kitchen porter"
+          ],
+          "history_length": 5
+        },
+        {
+          "target": "assistant video and motion picture director",
+          "history_titles": [
+            "management assistant",
+            "sales engineer",
+            "assistant video and motion picture director"
+          ],
+          "history_length": 3
+        },
+        {
+          "target": "metal sawing machine operator",
+          "history_titles": [
+            "mover",
+            "sewing machinist",
+            "metal sawing machine operator",
+            "metal sawing machine operator",
+            "sales assistant",
+            "metal sawing machine operator"
+          ],
+          "history_length": 6
+        }
+      ]
+    }
+  }
+}

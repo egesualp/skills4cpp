@@ -1,0 +1,9 @@
+openai
+pandas
+jinja2
+tqdm
+python-dotenv
+
+
+
+

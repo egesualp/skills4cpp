@@ -666,50 +666,115 @@ def load_esco_titles(path: str, lowercase: bool = False) -> tuple[list[str], lis
     return ids, titles
 
 
-def load_pairs(path: str | list[str], lowercase_raw: bool = False, lowercase_esco: bool = False) -> list[dict]:
-    """Loads job title pairs from one or more CSV files."""
+def load_pairs(
+    path: str | list[str],
+    lowercase_raw: bool = False,
+    lowercase_esco: bool = False,
+    ground_truth_col: str = "esco_id",
+    group_by_col: str = "raw_title",
+) -> list[dict]:
+    """
+    Loads job title pairs from one or more CSV files and aggregates all gold IDs per job_title.
+    Returns one entry per unique job (defined by group_by_col) with a list of gold IDs in `ground_truth_col`.
+    """
+    text_col = "raw_title"
     if isinstance(path, str):
         df = pd.read_csv(path)
     else:
         df = pd.concat([pd.read_csv(p) for p in path], ignore_index=True)
         
-    # drop rows with missing titles
-    cols_to_check = ['raw_title', 'esco_id']
+    if ground_truth_col not in df.columns:
+        raise ValueError(f"Column '{ground_truth_col}' not found in pairs file.")
+    if group_by_col not in df.columns:
+        raise ValueError(f"Column '{group_by_col}' not found in pairs file.")
+    if text_col not in df.columns:
+        raise ValueError(f"Column '{text_col}' not found in pairs file.")
+
+    # drop rows with missing titles or ground truth
+    cols_to_check = [group_by_col, ground_truth_col, text_col]
     if 'esco_title' in df.columns:
         cols_to_check.append('esco_title')
     df = df.dropna(subset=cols_to_check)
 
-    pairs = []
-    for _, row in df.iterrows():
-        job_title = str(row['raw_title'])
-        esco_id = str(row['esco_id'])
+    # Normalize casing if requested (apply to text column)
+    if lowercase_raw:
+        df[text_col] = df[text_col].astype(str).str.lower()
+    else:
+        df[text_col] = df[text_col].astype(str)
 
-        if lowercase_raw:
-            job_title = job_title.lower()
-
-        # Create pair dictionary
-        pair = {"job_title": job_title}
-        
-        # Add raw description if available
-        if 'raw_description' in df.columns and pd.notna(row.get('raw_description')):
-            pair['raw_description'] = str(row['raw_description'])
-        
+    df[ground_truth_col] = df[ground_truth_col].astype(str)
+    if lowercase_esco:
+        df[ground_truth_col] = df[ground_truth_col].str.lower()
         if 'esco_title' in df.columns:
-            esco_title = str(row['esco_title'])
-            if lowercase_esco:
-                esco_title = esco_title.lower()
-                esco_id = esco_id.lower()
-            
-            pair['esco_title'] = esco_title
-            pair['esco_id'] = esco_id
-            
-            # Add ESCO description if available
-            if 'esco_description' in df.columns and pd.notna(row.get('esco_description')):
-                pair['esco_description'] = str(row['esco_description'])
-        else:
-            if lowercase_esco:
-                esco_id = esco_id.lower()
-            pair['esco_id'] = esco_id
+            df['esco_title'] = df['esco_title'].astype(str).str.lower()
+
+    pairs = []
+    # Group by group_by_col; keep insertion order (sort=False)
+    for group_key, group in df.groupby(group_by_col, sort=False):
+        gold_vals: list[str] = []
+        for v in group[ground_truth_col]:
+            if isinstance(v, (list, tuple, set)):
+                gold_vals.extend([str(x) for x in v])
+            else:
+                gold_vals.append(str(v))
+        # Deduplicate preserving order
+        gold_list = list(dict.fromkeys(gold_vals))
+
+        # Extract the text for this group (take first valid)
+        text_val = next(
+            (str(x) for x in group[text_col].tolist() if pd.notna(x) and str(x).strip() != ""),
+            None
+        )
+        
+        # Fallback
+        if text_val is None:
+             text_val = str(group_key) if group_by_col == text_col else ""
+
+        pair = {"job_title": text_val, ground_truth_col: gold_list}
+        
+        # Store ID if different from text
+        if group_by_col != text_col:
+             pair[group_by_col] = group_key
+
+        # Add a representative raw_description if present
+        if 'raw_description' in group.columns:
+            desc = next(
+                (
+                    str(x)
+                    for x in group['raw_description'].tolist()
+                    if pd.notna(x) and str(x).strip() != ""
+                ),
+                None,
+            )
+            if desc is not None:
+                pair['raw_description'] = desc
+
+        # Optional ESCO title aggregation (only if relevant)
+        if 'esco_title' in group.columns:
+            esco_titles = [
+                str(x) for x in group['esco_title'].tolist()
+                if pd.notna(x) and str(x).strip() != ""
+            ]
+            if esco_titles:
+                pair['esco_title'] = esco_titles
+
+        # Optional ESCO description aggregation
+        if 'esco_description' in group.columns:
+            esco_descs = [
+                str(x) for x in group['esco_description'].tolist()
+                if pd.notna(x) and str(x).strip() != ""
+            ]
+            if esco_descs:
+                pair['esco_description'] = esco_descs
+        
+        # Include job_id if available (for alignment with other data sources like Task B, ISCO)
+        if 'job_id' in group.columns:
+            job_id = next(
+                (x for x in group['job_id'].tolist() if pd.notna(x)),
+                None
+            )
+            if job_id is not None:
+                pair['job_id'] = str(job_id)
         
         pairs.append(pair)
     return pairs

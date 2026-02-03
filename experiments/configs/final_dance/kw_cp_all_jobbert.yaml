@@ -1,0 +1,29 @@
+project:
+  name: "skills4cpp"
+  seed: 42
+
+data:
+  esco_path: "data/esco_datasets/occupations_en.csv"
+  pairs_path:
+    - "data/title_pairs_desc/karrierewege_plus_cp_master_3.csv"
+  lowercase: 'both'
+  ground_truth_col: "esco_id"
+  group_by_col: "job_id"
+  use_description: true
+
+model:
+  hf_id: "TechWolf/JobBERT-v2"
+  proj_dim: null
+  asymmetric: false
+  normalize_output: true
+
+eval:
+  batch_size: 32
+  topk: 10
+  use_faiss: true
+  save_predictions: true
+  cache_dir: "./cache/eval"
+  run_name: "infer_kw_cp_desc_all_jobbert_final_2"
+  clean_cache: true
+  compute_skill_coverage: true
+  #identity_test: true

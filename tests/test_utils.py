@@ -59,9 +59,9 @@ class TestNewUtils:
         """Test the load_pairs function."""
         pairs = load_pairs(mock_pairs_csv)
         expected = [
-            {"job_title": "job1", "esco_id": "uri1"},
-            {"job_title": "job2", "esco_id": "uri2"},
-            {"job_title": "job3", "esco_id": "uri3"},
+            {"job_title": "job1", "esco_id": ["uri1"]},
+            {"job_title": "job2", "esco_id": ["uri2"]},
+            {"job_title": "job3", "esco_id": ["uri3"]},
         ]
         assert pairs == expected
 
@@ -237,9 +237,15 @@ class TestUtils:
         assert val_pairs == train_pairs
         assert test_pairs == train_pairs
 
+    @patch('utils.pd.read_csv')
     @patch('utils.load_dataset')
-    def test_load_raw_to_esco_pairs_decorte(self, mock_load_dataset):
+    def test_load_raw_to_esco_pairs_decorte(self, mock_load_dataset, mock_read_csv):
         """Test load_raw_to_esco_pairs with the 'decorte' dataset."""
+        mock_read_csv.return_value = pd.DataFrame({
+            "conceptUri": ["uri1", "uri2"],
+            "preferredLabel": ["Software Developer", "Data Scientist"],
+            "description": ["", ""],
+        })
         mock_data = [
             {
                 'number_of_experiences': 2,
@@ -264,21 +270,31 @@ class TestUtils:
         train_pairs, val_pairs, test_pairs = load_raw_to_esco_pairs('decorte')
 
         expected_pairs = {
-            ('Software Intern', 'Software Developer'),
-            ('Developer', 'Software Developer'),
-            ('Data Analyst', 'Data Scientist')
+            ('Software Intern', 'Software Developer', 'uri1'),
+            ('Developer', 'Software Developer', 'uri1'),
+            ('Data Analyst', 'Data Scientist', 'uri2')
         }
-        assert set(train_pairs) == expected_pairs
-        assert set(val_pairs) == expected_pairs
-        assert set(test_pairs) == expected_pairs
+        train_set = {(p["raw_title"], p["esco_title"], p["esco_id"]) for p in train_pairs}
+        assert train_set == expected_pairs
+        assert {(p["raw_title"], p["esco_title"], p["esco_id"]) for p in val_pairs} == expected_pairs
+        assert {(p["raw_title"], p["esco_title"], p["esco_id"]) for p in test_pairs} == expected_pairs
 
+    @patch('utils.pd.read_csv')
     @patch('utils.load_dataset')
-    def test_load_raw_to_esco_pairs_karrierewege(self, mock_load_dataset):
+    def test_load_raw_to_esco_pairs_karrierewege(self, mock_load_dataset, mock_read_csv):
         """Test load_raw_to_esco_pairs with the 'karrierewege_plus' dataset."""
+        mock_read_csv.return_value = pd.DataFrame({
+            "conceptUri": ["uri_esco_1", "uri_esco_2"],
+            "preferredLabel": ["esco_1", "esco_2"],
+            "description": ["", ""],
+        })
         mock_data = {
             'new_job_title_en_occ': ['Raw Title 1', 'Raw Title 2'],
+            'new_job_description_en_occ': ['desc1', 'desc2'],
             'preferredLabel_en': ['esco_1', 'esco_2'],
+            'description_en': ['desc_esco1', 'desc_esco2'],
             'new_job_title_en_cp': ['Raw Title 3', 'Raw Title 1'],
+            'new_job_description_en_cp': ['desc3', 'desc4'],
         }
         mock_df = pd.DataFrame(mock_data)
         # Manually create the pairs as the function does to ensure correct test data
@@ -299,10 +315,11 @@ class TestUtils:
         
         train_pairs, val_pairs, test_pairs = load_raw_to_esco_pairs('karrierewege_plus')
 
-        # The function returns a list, convert to set for comparison
-        assert set(train_pairs) == all_pairs
-        assert set(val_pairs) == all_pairs
-        assert set(test_pairs) == all_pairs
+        # The function returns dicts; compare on titles/labels
+        got_pairs = {(p["raw_title"], p["esco_title"]) for p in train_pairs}
+        assert got_pairs == all_pairs
+        assert {(p["raw_title"], p["esco_title"]) for p in val_pairs} == all_pairs
+        assert {(p["raw_title"], p["esco_title"]) for p in test_pairs} == all_pairs
 
     def test_load_raw_to_esco_pairs_unsupported(self):
         """Test load_raw_to_esco_pairs with an unsupported dataset name."""
@@ -318,8 +335,11 @@ class TestLoadRawToEscoPairsKarrierewege:
         """Set up test fixtures before each test method."""
         self.mock_data = {
             'new_job_title_en_occ': ['occ_title_1', 'occ_title_2', 'shared_title', None, None, None],
+            'new_job_description_en_occ': ['d1', 'd2', 'd3', None, None, None],
             'new_job_title_en_cp': [None, None, None, 'cp_title_1', 'cp_title_2', 'shared_title'],
-            'preferredLabel_en': ['esco_occ_1', 'esco_occ_2', 'esco_shared', 'esco_cp_1', 'esco_cp_2', 'esco_shared_2']
+            'new_job_description_en_cp': [None, None, None, 'd4', 'd5', 'd6'],
+            'preferredLabel_en': ['esco_occ_1', 'esco_occ_2', 'esco_shared', 'esco_cp_1', 'esco_cp_2', 'esco_shared_2'],
+            'description_en': ['de1', 'de2', 'de3', 'de4', 'de5', 'de6'],
         }
         self.mock_df = pd.DataFrame(self.mock_data)
         
@@ -333,8 +353,13 @@ class TestLoadRawToEscoPairsKarrierewege:
             'test': mock_dataset_obj,
         }
 
-        with patch('utils.load_dataset') as mock_load_dataset:
+        with patch('utils.load_dataset') as mock_load_dataset, patch('utils.pd.read_csv') as mock_read_csv:
             mock_load_dataset.return_value = self.mock_dataset
+            mock_read_csv.return_value = pd.DataFrame({
+                "conceptUri": ["uri_occ_1", "uri_occ_2", "uri_shared", "uri_cp_1", "uri_cp_2", "uri_shared_2"],
+                "preferredLabel": ['esco_occ_1', 'esco_occ_2', 'esco_shared', 'esco_cp_1', 'esco_cp_2', 'esco_shared_2'],
+                "description": ["", "", "", "", "", ""],
+            })
             yield
 
     def test_kw_source_all(self):
@@ -351,7 +376,7 @@ class TestLoadRawToEscoPairsKarrierewege:
         for _, row in pairs_cp.iterrows():
             expected_pairs.add((row['new_job_title_en_cp'], row['preferredLabel_en']))
             
-        assert set(train_pairs) == expected_pairs
+        assert {(p["raw_title"], p["esco_title"]) for p in train_pairs} == expected_pairs
 
     def test_kw_source_occ(self):
         """Test with kw_source='occ'."""
@@ -362,7 +387,7 @@ class TestLoadRawToEscoPairsKarrierewege:
         for _, row in pairs_occ.iterrows():
             expected_pairs.add((row['new_job_title_en_occ'], row['preferredLabel_en']))
 
-        assert set(train_pairs) == expected_pairs
+        assert {(p["raw_title"], p["esco_title"]) for p in train_pairs} == expected_pairs
 
     def test_kw_source_cp(self):
         """Test with kw_source='cp'."""
@@ -373,7 +398,7 @@ class TestLoadRawToEscoPairsKarrierewege:
         for _, row in pairs_cp.iterrows():
             expected_pairs.add((row['new_job_title_en_cp'], row['preferredLabel_en']))
 
-        assert set(train_pairs) == expected_pairs
+        assert {(p["raw_title"], p["esco_title"]) for p in train_pairs} == expected_pairs
 
     def test_kw_source_invalid(self):
         """Test with an invalid kw_source."""

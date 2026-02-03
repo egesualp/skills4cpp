@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import batch_to_device
 
 
 class BaseModel(nn.Module, ABC):
@@ -75,9 +76,41 @@ class BiEncoder(BaseModel):
 
 
     def _encode(
-        self, texts: list[str], batch_size: int, normalize: bool = True, show_progress_bar: bool = False
+        self, texts: list[str], batch_size: int, normalize: bool = True, show_progress_bar: bool = False, text_key: str = None
     ) -> torch.Tensor:
         """Internal encoding function."""
+        if text_key:
+            # Custom encoding loop for asymmetric models (e.g. JobBERT)
+            # that require a specific text_key for projection head selection.
+            self.st_model.eval()
+            all_embeddings = []
+            
+            # Simple batching (no sorting by length here to keep it simple, 
+            # as performance diff is usually negligible for inference on small batches)
+            for i in range(0, len(texts), batch_size):
+                batch_texts = texts[i : i + batch_size]
+                
+                # Tokenize
+                features = self.st_model.tokenize(batch_texts)
+                features = batch_to_device(features, self.device)
+                
+                # Specify projection head
+                features["text_keys"] = [text_key]
+                
+                with torch.no_grad():
+                    out_features = self.st_model.forward(features)
+                    embeddings = out_features["sentence_embedding"]
+                    
+                    if normalize:
+                        embeddings = F.normalize(embeddings, p=2, dim=1)
+                    
+                    all_embeddings.append(embeddings.cpu())
+            
+            if len(all_embeddings) > 0:
+                return torch.cat(all_embeddings, dim=0)
+            else:
+                return torch.tensor([])
+
         return self.st_model.encode(
             texts,
             batch_size=batch_size,
@@ -104,14 +137,26 @@ class BiEncoder(BaseModel):
     def encode_job(
         self, texts: list[str], batch_size: int = 128, normalize: bool = True, show_progress_bar: bool = False
     ) -> np.ndarray:
-        embeddings = self._encode(texts, batch_size, normalize, show_progress_bar)
+        embeddings = self._encode(
+            texts, 
+            batch_size, 
+            normalize, 
+            show_progress_bar, 
+            text_key=self.model_config.get("job_text_key")
+        )
         embeddings = self._apply_projection(embeddings, self.job_proj)
         return self._process_embeddings(embeddings)
 
     def encode_esco(
         self, texts: list[str], batch_size: int = 128, normalize: bool = True, show_progress_bar: bool = False
     ) -> np.ndarray:
-        embeddings = self._encode(texts, batch_size, normalize, show_progress_bar)
+        embeddings = self._encode(
+            texts, 
+            batch_size, 
+            normalize, 
+            show_progress_bar, 
+            text_key=self.model_config.get("esco_text_key")
+        )
         embeddings = self._apply_projection(embeddings, self.esco_proj)
         return self._process_embeddings(embeddings)
 

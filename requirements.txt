@@ -1,14 +1,22 @@
-datasets==4.1.1
-faiss==1.9.0
-invoke==2.2.0
-numpy==2.3.3
-pandas==2.3.2
-pytest==8.4.2
-PyYAML==6.0.3
-sentence_transformers==5.1.1
-torch==2.6.0
-typer
-tqdm==4.67.1
-wandb
-loguru
-python-box
+# --- Core ML Frameworks ---
+torch>=2.4.0
+sentence_transformers>=3.0.0
+# Use the CUDA 12 specific Faiss for H100 performance
+faiss-gpu-cu12>=1.8.0 
+
+# --- Data Processing ---
+datasets>=3.0.0
+numpy>=2.0.0
+pandas>=2.2.0
+
+# --- Utilities ---
+PyYAML>=6.0.1
+tqdm>=4.66.0
+loguru>=0.7.0
+python-box>=7.0.0
+wandb>=0.17.0
+invoke>=2.2.0
+typer>=0.12.0
+
+# --- Testing ---
+pytest>=8.0.0

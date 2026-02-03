@@ -18,11 +18,12 @@ from sentence_transformers import util
 logger.remove()
 logger.add(sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}")
 
-from .config import load_config
-from .utils import load_esco_titles, load_pairs, detect_pool_embeddings
-from .indexing import build_or_load_faiss_index, search_faiss_index
-from .metrics import map_esco_id_to_row, METRICS, load_skills_per_occupation, compute_skill_coverage
-from .model import BiEncoder
+from config import load_config
+from utils import load_esco_titles, load_pairs, detect_pool_embeddings
+from indexing import build_or_load_faiss_index, search_faiss_index
+from metrics import map_esco_id_to_row, METRICS, load_skills_per_occupation, compute_skill_coverage
+from model import BiEncoder
+import faiss
 
 
 class AsymmetricInformationRetrievalEvaluator(InformationRetrievalEvaluator):
@@ -186,14 +187,26 @@ def main(cfg: Box):
             cfg.data.pairs_path,
             lowercase_raw=lowercase_pairs_flag,
             lowercase_esco=lowercase_esco_flag,
+            ground_truth_col=cfg.data.get("ground_truth_col", "esco_id"),
         )
         
         # 2. Prepare data for the evaluator
         corpus = {str(esco_id): title for esco_id, title in zip(esco_ids, esco_titles)}
-        queries = {str(i): p["job_title"] for i, p in enumerate(pairs)}
+        
+        use_description = cfg.data.get("use_description", False)
+        queries = {}
+        for i, p in enumerate(pairs):
+            text = p["job_title"]
+            if use_description:
+                desc = p.get("raw_description", "")
+                if desc:
+                    text = f"{text}</s>{desc}"
+            queries[str(i)] = text
         
         ground_truth_col = cfg.data.get("ground_truth_col", "esco_id")
-        relevant_docs = {str(i): {str(p[ground_truth_col])} for i, p in enumerate(pairs)}
+        relevant_docs = {
+            str(i): {str(g) for g in p[ground_truth_col]} for i, p in enumerate(pairs)
+        }
 
         evaluator = AsymmetricInformationRetrievalEvaluator(
             queries=queries,
@@ -224,8 +237,8 @@ def main(cfg: Box):
                     I = np.argsort(scores, axis=1)[:, ::-1]
                     
                     # Map gold IDs to rows
-                    gold_ids = [p[ground_truth_col] for p in pairs]
-                    gold_rows, _ = map_esco_id_to_row(gold_ids, esco_ids)
+                    gold_id_lists = [p[ground_truth_col] for p in pairs]
+                    gold_rows, _ = map_esco_id_to_row(gold_id_lists, esco_ids)
                     
                     # Compute skill coverage
                     skills_by_occupation = load_skills_per_occupation(skills_path)
@@ -297,9 +310,9 @@ def main(cfg: Box):
     assert esco_emb.dtype == np.float32
 
     # Auto-pool if there are multiple rows per esco_id
-    pooled_ids, pooled_titles, pooled_emb, did_pool = detect_pool_embeddings(
-        esco_ids, esco_titles, esco_emb, logger, renorm=True
-    )
+    do_pooling = False
+    logger.info("Pooling is disabled. Using raw ESCO embeddings.")
+    did_pool = False
 
     # Decide what to use everywhere below
     index_ids    = pooled_ids   if did_pool else esco_ids
@@ -319,20 +332,32 @@ def main(cfg: Box):
     if cfg.eval.get("identity_test"):
         logger.info("Performing identity test. Using ESCO titles as queries.")
         job_texts = index_titles
-        gold_ids = index_ids
+        gold_id_lists = [[eid] for eid in index_ids]
     else:
         logger.info("Loading evaluation pairs...")
         lowercase_pairs_flag = lowercase_setting in ["both", "pairs"]
+        ground_truth_col = cfg.data.get("ground_truth_col", "esco_id")
+        
+        group_by_col = cfg.data.get("group_by_col", "raw_title")
+
         pairs = load_pairs(
             cfg.data.pairs_path,
             lowercase_raw=lowercase_pairs_flag,
             lowercase_esco=lowercase_esco_flag,
+            ground_truth_col=ground_truth_col,
+            group_by_col=group_by_col,
         )
-        job_texts = [p["job_title"] for p in pairs]
+        job_texts = []
+        use_description = cfg.data.get("use_description", False)
+        for p in pairs:
+            text = p["job_title"]
+            if use_description:
+                desc = p.get("raw_description", "")
+                if desc:
+                    text = f"{text}</s>{desc}"
+            job_texts.append(text)
         
-        # Use the configured ground truth column
-        ground_truth_col = cfg.data.get("ground_truth_col", "esco_id")
-        gold_ids = [p[ground_truth_col] for p in pairs]
+        gold_id_lists = [p[ground_truth_col] for p in pairs]
 
     logger.info("Encoding job titles...")
     t_encode_start = time.monotonic()
@@ -347,27 +372,91 @@ def main(cfg: Box):
 
     # 5. Retrieve top-k
     logger.info("Retrieving top-k candidates...")
+    t_retrieve_start = time.monotonic()
+    
+    # Determine if we need full ranking or can use partial sorting
+    need_full_ranking = ground_truth_col in ["esco_id", "occupationUri", "conceptUri"]
+    
     if cfg.eval.use_faiss:
-        # Use exact FAISS flat index to retrieve full ranking for exact MAP/MRR
-        k = len(index_ids)
+        if need_full_ranking:
+            # Use exact FAISS flat index to retrieve full ranking for exact MAP/MRR
+            k = len(index_ids)
+        else:
+            # Only retrieve what we need
+            k = min(cfg.eval.topk * 2, len(index_ids))  # 2x buffer for safety
         _, I = search_faiss_index(index, job_emb, k)
     else:
         # Cosine similarity here
         scores = job_emb @ index_emb.T
-        # Get the full ranking
-        I = np.argsort(scores, axis=1)[:, ::-1]
+        
+        if need_full_ranking:
+            # Get the full ranking - this is expensive!
+            I = np.argsort(scores, axis=1)[:, ::-1]
+        else:
+            # Use argpartition for faster partial sorting (O(n) vs O(n log n))
+            k = min(cfg.eval.topk * 2, scores.shape[1])
+            # argpartition doesn't guarantee order within partition, so we need to sort the top-k
+            partition_idx = np.argpartition(scores, -k, axis=1)[:, -k:]
+            # Sort the top-k partition
+            sorted_partition_idx = np.argsort(np.take_along_axis(scores, partition_idx, axis=1), axis=1)[:, ::-1]
+            I = np.take_along_axis(partition_idx, sorted_partition_idx, axis=1)
+
+    # Post-process I if pooling was disabled
+    if need_full_ranking:
+        logger.info("Collapsing retrieval results to unique ESCO IDs (vectorized)...")
+        
+        # 1. Identify unique IDs and their canonical indices (sorted for determinism)
+        unique_ids_list = sorted(list(set(index_ids)))
+        id_to_unique_idx = {uid: i for i, uid in enumerate(unique_ids_list)}
+        
+        # 2. Vectorized approach: map all indices to unique IDs at once
+        # Create a mapping array from original index to unique index
+        index_to_unique = np.array([id_to_unique_idx[eid] for eid in index_ids], dtype=np.int32)
+        
+        # Map all retrieved indices to unique indices
+        I_mapped = index_to_unique[I]
+        
+        # 3. Remove duplicates row by row (this is the bottleneck, but optimized)
+        num_queries = I_mapped.shape[0]
+        max_unique = len(unique_ids_list)
+        
+        # Pre-allocate output array
+        I_collapsed = np.full((num_queries, max_unique), -1, dtype=np.int32)
+        
+        # Process in batches for better cache locality
+        batch_size = 1000
+        for batch_start in range(0, num_queries, batch_size):
+            batch_end = min(batch_start + batch_size, num_queries)
+            
+            for i in range(batch_start, batch_end):
+                # Use numpy unique with return_index to preserve order
+                _, unique_indices = np.unique(I_mapped[i], return_index=True)
+                # Sort by original position to maintain ranking order
+                unique_indices_sorted = np.sort(unique_indices)
+                unique_values = I_mapped[i, unique_indices_sorted]
+                
+                # Fill the collapsed array
+                n_unique = len(unique_values)
+                I_collapsed[i, :n_unique] = unique_values
+        
+        I = I_collapsed
+        # Update index_ids to be the unique list for downstream mapping
+        index_ids = unique_ids_list
+    
+    t_retrieve_end = time.monotonic()
+    logger.info(f"Retrieval and collapsing took {t_retrieve_end - t_retrieve_start:.2f}s")
 
     # 6. Compute metrics
     logger.info("Computing metrics...")
     
     # Select the correct list for mapping based on the ground truth column
     ground_truth_col = cfg.data.get("ground_truth_col", "esco_id")
-    if ground_truth_col == "esco_id":
+    if ground_truth_col in ["esco_id", "occupationUri", "conceptUri"]:
         id_list_for_mapping = index_ids
     else:
         id_list_for_mapping = index_titles
 
-    gold_rows, coverage = map_esco_id_to_row(gold_ids, id_list_for_mapping)
+    gold_rows, coverage = map_esco_id_to_row(gold_id_lists, id_list_for_mapping)
 
     if coverage < 0.95:
         logger.warning(
@@ -429,18 +518,27 @@ def main(cfg: Box):
     if cfg.eval.save_predictions:
         logger.info("Saving predictions...")
         predictions = []
+        pred_k = cfg.eval.get("predictions_topk", cfg.eval.topk)
         for i in range(len(job_texts)):
             # Note: We save only top-k predictions regardless of I's size
-            preds = [index_ids[j] for j in I[i, :cfg.eval.topk]]
+            preds = [index_ids[j] for j in I[i, :pred_k]]
             
             # Use the configured ground truth column for saving predictions
             ground_truth_col = cfg.data.get("ground_truth_col", "esco_id")
-            gold_id = gold_ids[i]
+            gold_val = gold_id_lists[i]
+            if not isinstance(gold_val, (list, tuple, set)):
+                gold_val = [gold_val]
+            gold_val = list(gold_val)
+            
+            # Get job_id if available from the pair, otherwise use line index
+            pair = pairs[i] if not cfg.eval.get("identity_test") else {}
+            job_id = pair.get("job_id", i)  # Fall back to index if no job_id
             
             predictions.append(
                 {
+                    "job_id": job_id,  # NEW: Include job_id for alignment with other data sources
                     "job_title": job_texts[i],
-                    f"gold_{ground_truth_col}": gold_id,
+                    f"gold_{ground_truth_col}": gold_val,
                     "predicted_esco_ids": preds,
                 }
             )

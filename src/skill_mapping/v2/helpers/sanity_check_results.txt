@@ -1,0 +1,232 @@
+Target Level: 1 (level1_label)
+Soft Labels: True
+
+[1] Loading ESCO Data...
+
+[2] Loading Augmented Data from data/processed/augmentation/augmented_esco_occupations_with_expanded_alts.csv...
+
+[3] Building Training Samples (Occupations)...
+Found 33440 training samples.
+
+[3.1] Random Training Examples (5):
+
+--- Training Sample ---
+URI: http://data.europa.eu/esco/occupation/9ab0f0db-1128-4050-becd-b09db5eabdaa
+Text: A file keeper or file clerk needs strong organizational skills, attention to detail, and the ability to work efficiently with large volumes of documents. Additionally, proficiency in data entry and record keeping systems may be required.
+Categories (Soft Labels - Counts):
+  - information skills: 19 (35.2%)
+  - working with computers: 14 (25.9%)
+  - social and communication skills and competences: 5 (9.3%)
+  - core skills and competences: 3 (5.6%)
+  - management skills: 3 (5.6%)
+  - thinking skills and competences: 2 (3.7%)
+  - social sciences, journalism and information: 2 (3.7%)
+  - assisting and caring: 2 (3.7%)
+  - information and communication technologies (icts): 1 (1.9%)
+  - working with machinery and specialised equipment: 1 (1.9%)
+  - business, administration and law: 1 (1.9%)
+  - communication, collaboration and creativity: 1 (1.9%)
+
+--- Training Sample ---
+URI: http://data.europa.eu/esco/occupation/092fdeeb-a76f-4ed2-b248-90fd6eaaffef
+Text: An SEO consultant needs strong analytical skills to interpret data and trends, excellent communication skills to collaborate with clients and team members, and up-to-date knowledge of search engine algorithms and best practices to optimize website performance.
+Categories (Soft Labels - Counts):
+  - working with computers: 19 (32.2%)
+  - communication, collaboration and creativity: 11 (18.6%)
+  - information skills: 11 (18.6%)
+  - management skills: 5 (8.5%)
+  - business, administration and law: 5 (8.5%)
+  - thinking skills and competences: 3 (5.1%)
+  - information and communication technologies (icts): 2 (3.4%)
+  - social and communication skills and competences: 2 (3.4%)
+  - social sciences, journalism and information: 1 (1.7%)
+
+--- Training Sample ---
+URI: http://data.europa.eu/esco/occupation/fa4a3b52-990c-44eb-a912-490f5d689400
+Text: A social pedagogue needs strong communication and interpersonal skills to effectively engage with individuals and communities, as well as empathy and cultural sensitivity to support the social, emotional, and educational development of clients.
+Categories (Soft Labels - Counts):
+  - communication, collaboration and creativity: 25 (25.8%)
+  - assisting and caring: 16 (16.5%)
+  - social and communication skills and competences: 11 (11.3%)
+  - management skills: 9 (9.3%)
+  - health and welfare: 7 (7.2%)
+  - education: 6 (6.2%)
+  - information skills: 6 (6.2%)
+  - life skills and competences: 5 (5.2%)
+  - social sciences, journalism and information: 5 (5.2%)
+  - self-management skills and competences: 3 (3.1%)
+  - business, administration and law: 2 (2.1%)
+  - working with computers: 1 (1.0%)
+  - arts and humanities: 1 (1.0%)
+
+--- Training Sample ---
+URI: http://data.europa.eu/esco/occupation/1ff5cf0d-e81f-4287-ba00-096816b16777
+Text: A ship steerswoman would need strong navigational skills, including the ability to interpret charts and use navigational instruments effectively. Additionally, she would need excellent communication skills to work closely with the rest of the crew and safely guide the ship through various waterways.
+Categories (Soft Labels - Counts):
+  - working with machinery and specialised equipment: 14 (22.2%)
+  - social and communication skills and competences: 13 (20.6%)
+  - management skills: 7 (11.1%)
+  - information skills: 6 (9.5%)
+  - services: 5 (7.9%)
+  - communication, collaboration and creativity: 4 (6.3%)
+  - handling and moving: 3 (4.8%)
+  - assisting and caring: 3 (4.8%)
+  - thinking skills and competences: 3 (4.8%)
+  - constructing: 3 (4.8%)
+  - natural sciences, mathematics and statistics: 1 (1.6%)
+  - working with computers: 1 (1.6%)
+
+--- Training Sample ---
+URI: http://data.europa.eu/esco/occupation/b633af32-c8c0-4481-9971-7932ea4b16b5
+Text: A wood factory manager needs strong leadership skills to oversee and coordinate all aspects of the production process, as well as technical knowledge of wood processing and manufacturing techniques. Additionally, effective communication skills are essential for managing a team and collaborating with other departments.
+Categories (Soft Labels - Counts):
+  - management skills: 30 (26.3%)
+  - social and communication skills and competences: 18 (15.8%)
+  - communication, collaboration and creativity: 16 (14.0%)
+  - information skills: 14 (12.3%)
+  - assisting and caring: 8 (7.0%)
+  - self-management skills and competences: 7 (6.1%)
+  - engineering, manufacturing and construction: 6 (5.3%)
+  - life skills and competences: 5 (4.4%)
+  - business, administration and law: 4 (3.5%)
+  - core skills and competences: 4 (3.5%)
+  - thinking skills and competences: 1 (0.9%)
+  - handling and moving: 1 (0.9%)
+
+[3.2] Validating Stratified Sampling...
+  - Train Unique Occupations: 2736
+  - Val Unique Occupations: 303
+  - Intersection (Leakage Check): 0 (Should be 0)
+    PASS: No data leakage detected (occupations disjoint).
+
+  - Stratification Check (Top 5 ISCO Groups):
+    ISCO Group      Train      Val        Val Ratio 
+    --------------- ---------- ---------- ----------
+    1324            81         9          10.0%
+    8160            49         6          10.9%
+    1420            44         5          10.2%
+    2310            40         5          11.1%
+    5223            40         4          9.1%
+    3324            37         4          9.8%
+    2149            37         4          9.8%
+    3331            36         4          10.0%
+    2635            32         4          11.1%
+    7223            31         3          8.8%
+
+[4] Building Validation Samples (External Validation)...
+Found 304 validation samples.
+
+[4.1] Random Validation Examples (5):
+
+--- Validation Sample ---
+Job ID: dev_qb_jt_125
+Text: An investor relations associate needs strong communication and interpersonal skills to effectively communicate with investors and stakeholders. They also need analytical skills to interpret financial data and market trends.
+Categories (Soft Labels - Counts):
+  - communication, collaboration and creativity: 15 (20.3%)
+  - business, administration and law: 11 (14.9%)
+  - management skills: 8 (10.8%)
+  - social and communication skills and competences: 8 (10.8%)
+  - information skills: 7 (9.5%)
+  - working with computers: 4 (5.4%)
+  - thinking skills and competences: 4 (5.4%)
+  - assisting and caring: 3 (4.1%)
+  - self-management skills and competences: 3 (4.1%)
+  - social sciences, journalism and information: 2 (2.7%)
+  - engineering, manufacturing and construction: 2 (2.7%)
+  - core skills and competences: 2 (2.7%)
+  - information and communication technologies (icts): 1 (1.4%)
+  - life skills and competences: 1 (1.4%)
+  - generic programmes and qualifications: 1 (1.4%)
+  - natural sciences, mathematics and statistics: 1 (1.4%)
+  - working with machinery and specialised equipment: 1 (1.4%)
+
+--- Validation Sample ---
+Job ID: dev_qb_jt_280
+Text: An import coordinator needs strong organizational skills to manage shipments, attention to detail to ensure compliance with regulations, and communication skills to work with suppliers and customs officials.
+Categories (Soft Labels - Counts):
+  - management skills: 23 (17.8%)
+  - business, administration and law: 18 (14.0%)
+  - information skills: 16 (12.4%)
+  - communication, collaboration and creativity: 16 (12.4%)
+  - social and communication skills and competences: 9 (7.0%)
+  - assisting and caring: 7 (5.4%)
+  - working with computers: 6 (4.7%)
+  - self-management skills and competences: 6 (4.7%)
+  - information and communication technologies (icts): 6 (4.7%)
+  - thinking skills and competences: 5 (3.9%)
+  - handling and moving: 5 (3.9%)
+  - services: 4 (3.1%)
+  - engineering, manufacturing and construction: 2 (1.6%)
+  - core skills and competences: 2 (1.6%)
+  - social sciences, journalism and information: 1 (0.8%)
+  - working with machinery and specialised equipment: 1 (0.8%)
+  - generic programmes and qualifications: 1 (0.8%)
+  - natural sciences, mathematics and statistics: 1 (0.8%)
+
+--- Validation Sample ---
+Job ID: dev_qb_jt_115
+Text: A product representative needs excellent communication skills to effectively promote and sell products, strong customer service skills to address inquiries and concerns, and product knowledge to provide accurate information and recommendations to customers.
+Categories (Soft Labels - Counts):
+  - communication, collaboration and creativity: 19 (24.7%)
+  - business, administration and law: 13 (16.9%)
+  - management skills: 7 (9.1%)
+  - assisting and caring: 7 (9.1%)
+  - working with computers: 5 (6.5%)
+  - information and communication technologies (icts): 4 (5.2%)
+  - social and communication skills and competences: 4 (5.2%)
+  - information skills: 3 (3.9%)
+  - core skills and competences: 3 (3.9%)
+  - arts and humanities: 3 (3.9%)
+  - engineering, manufacturing and construction: 2 (2.6%)
+  - handling and moving: 2 (2.6%)
+  - generic programmes and qualifications: 1 (1.3%)
+  - natural sciences, mathematics and statistics: 1 (1.3%)
+  - thinking skills and competences: 1 (1.3%)
+  - life skills and competences: 1 (1.3%)
+  - working with machinery and specialised equipment: 1 (1.3%)
+
+--- Validation Sample ---
+Job ID: dev_qb_jt_206
+Text: An associate site merchandiser typically needs skills in e-commerce, digital marketing, data analysis, and visual merchandising. Strong attention to detail, analytical skills, and understanding of customer behavior online are also crucial for this role.
+Categories (Soft Labels - Counts):
+  - business, administration and law: 16 (18.0%)
+  - management skills: 14 (15.7%)
+  - communication, collaboration and creativity: 11 (12.4%)
+  - information skills: 10 (11.2%)
+  - social and communication skills and competences: 6 (6.7%)
+  - self-management skills and competences: 5 (5.6%)
+  - working with computers: 5 (5.6%)
+  - core skills and competences: 4 (4.5%)
+  - assisting and caring: 4 (4.5%)
+  - thinking skills and competences: 4 (4.5%)
+  - handling and moving: 3 (3.4%)
+  - information and communication technologies (icts): 1 (1.1%)
+  - engineering, manufacturing and construction: 1 (1.1%)
+  - working with machinery and specialised equipment: 1 (1.1%)
+  - generic programmes and qualifications: 1 (1.1%)
+  - health and welfare: 1 (1.1%)
+  - natural sciences, mathematics and statistics: 1 (1.1%)
+  - services: 1 (1.1%)
+
+--- Validation Sample ---
+Job ID: dev_qb_jt_5
+Text: A Security Analyst II typically requires skills in information security, threat analysis, incident response, vulnerability management, network security, security monitoring, and security tools such as SIEM and IDS/IPS. Strong analytical skills, attention to detail, problem-solving abilities, and a deep understanding of security best practices are also essential for this role.
+Categories (Soft Labels - Counts):
+  - information and communication technologies (icts): 31 (22.3%)
+  - working with computers: 24 (17.3%)
+  - management skills: 11 (7.9%)
+  - communication, collaboration and creativity: 10 (7.2%)
+  - business, administration and law: 10 (7.2%)
+  - information skills: 10 (7.2%)
+  - assisting and caring: 8 (5.8%)
+  - thinking skills and competences: 6 (4.3%)
+  - engineering, manufacturing and construction: 6 (4.3%)
+  - social and communication skills and competences: 4 (2.9%)
+  - arts and humanities: 4 (2.9%)
+  - self-management skills and competences: 3 (2.2%)
+  - constructing: 3 (2.2%)
+  - core skills and competences: 3 (2.2%)
+  - social sciences, journalism and information: 2 (1.4%)
+  - services: 2 (1.4%)
+  - life skills and competences: 1 (0.7%)
+  - working with machinery and specialised equipment: 1 (0.7%)

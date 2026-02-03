@@ -2,8 +2,8 @@ import faiss
 import numpy as np
 import pytest
 from src.config import ModelConfig
-from src.indexing import build_ip_index, search_index
-from src.metrics import compute_map_mrr_at_10, compute_recall_at_k
+from src.indexing import build_ip_index, search_faiss_index
+from src.metrics import compute_map_mrr, compute_recall_at_k
 from src.model import BiEncoder
 
 
@@ -29,7 +29,7 @@ def test_evaluation_smoke():
     # 2. Create fake data
     esco_titles = ["Data scientist", "Software engineer", "Product manager"]
     job_titles = ["Data scientist"]
-    gold_rows = [0]  # The first job title matches the first ESCO title
+    gold_rows = [[0]]  # The first job title matches the first ESCO title
 
     # 3. Encode
     esco_embs = model.encode_esco(esco_titles)
@@ -41,14 +41,14 @@ def test_evaluation_smoke():
 
     # 4. Build FAISS index and search
     index = build_ip_index(esco_embs)
-    distances, indices = search_index(index, job_embs, topk=10)
+    distances, indices = search_faiss_index(index, job_embs, topk=10)
 
     # Assert dtypes after search
     assert distances.dtype == np.float32
 
     # 5. Compute and assert metrics
     recall_metrics = compute_recall_at_k(indices, gold_rows, ks=(1,))
-    map_metric, _ = compute_map_mrr_at_10(indices, gold_rows)
+    map_metrics = compute_map_mrr(indices, gold_rows)
 
     assert recall_metrics["recall@1"] == 1.0
-    assert map_metric == 1.0
+    assert map_metrics["map@10"] == 1.0

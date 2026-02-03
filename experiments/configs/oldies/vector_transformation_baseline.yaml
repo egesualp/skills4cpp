@@ -1,0 +1,36 @@
+# Vector Transformation Training Configuration
+# Reproduces the original vector_transformation.py approach
+
+# Data configuration
+data_type: decorte
+use_text_description: false  # Use titles only (default)
+
+# Encoder
+encoder: sentence-transformers/all-mpnet-base-v2
+
+# Model architecture
+hidden_sizes: [512, 512]  # Two hidden layers of size 512
+dropout: true
+dropout_rate: 0.1
+
+# Training
+max_epochs: 50
+patience: 5
+batch_size: 256
+lr: 0.001
+
+# Device
+device: cuda
+
+# Output
+output_dir: results/vector_transformation
+run_name: vector_transform_baseline
+save_model: true
+
+# WandB
+use_wandb: true
+wandb_project: vector-transformation
+wandb_entity: null
+
+
+

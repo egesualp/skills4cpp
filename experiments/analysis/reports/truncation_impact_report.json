@@ -1,0 +1,166 @@
+{
+  "metadata": {
+    "timestamp": "2025-12-30T18:50:19.015937",
+    "encoder_model": "ElenaSenger/career-path-representation-mpnet-decorte-esco",
+    "model_max_seq_length": 384,
+    "data_type": "decorte",
+    "only_titles": false,
+    "consider_subspans": true,
+    "context_lengths_tested": [
+      128,
+      256,
+      384,
+      512
+    ],
+    "sep_token": "<SEP>"
+  },
+  "results": {
+    "train": {
+      "truncation": {
+        "128": {
+          "truncated_count": 8693,
+          "truncation_rate": 64.46900029664788,
+          "avg_lost_truncated": 174.59496146324628,
+          "total_percent_lost": 50.36906798138631
+        },
+        "256": {
+          "truncated_count": 4242,
+          "truncation_rate": 31.459507564520912,
+          "avg_lost_truncated": 168.46935407826496,
+          "total_percent_lost": 23.71669145704362
+        },
+        "384": {
+          "truncated_count": 1967,
+          "truncation_rate": 14.587659448234946,
+          "avg_lost_truncated": 169.7646161667514,
+          "total_percent_lost": 11.081895856522458
+        },
+        "512": {
+          "truncated_count": 921,
+          "truncation_rate": 6.830317413230495,
+          "avg_lost_truncated": 171.20629750271445,
+          "total_percent_lost": 5.232893478371972
+        }
+      },
+      "last_job_analysis": {
+        "total": 13484,
+        "matches": 310,
+        "match_rate": 2.2990210619994067
+      },
+      "statistics": {
+        "num_pairs": 13484,
+        "doc_length_stats": {
+          "min": 9,
+          "max": 1726,
+          "mean": 223.4697419163453,
+          "median": 176.0,
+          "std": 174.13320031429515,
+          "percentile_25": 100.0,
+          "percentile_75": 294.0,
+          "percentile_90": 447.0,
+          "percentile_95": 563.8499999999985,
+          "percentile_99": 847.5100000000002
+        },
+        "total_tokens": 3013266
+      }
+    },
+    "validation": {
+      "truncation": {
+        "128": {
+          "truncated_count": 945,
+          "truncation_rate": 60.65468549422336,
+          "avg_lost_truncated": 176.66243386243386,
+          "total_percent_lost": 49.75249811505187
+        },
+        "256": {
+          "truncated_count": 447,
+          "truncation_rate": 28.690629011553277,
+          "avg_lost_truncated": 182.96868008948545,
+          "total_percent_lost": 24.373794899762483
+        },
+        "384": {
+          "truncated_count": 207,
+          "truncation_rate": 13.286264441591783,
+          "avg_lost_truncated": 204.58937198067633,
+          "total_percent_lost": 12.620957047023868
+        },
+        "512": {
+          "truncated_count": 107,
+          "truncation_rate": 6.867779204107831,
+          "avg_lost_truncated": 215.3644859813084,
+          "total_percent_lost": 6.867469520463235
+        }
+      },
+      "last_job_analysis": {
+        "total": 1558,
+        "matches": 17,
+        "match_rate": 1.0911424903722722
+      },
+      "statistics": {
+        "num_pairs": 1558,
+        "doc_length_stats": {
+          "min": 13,
+          "max": 1377,
+          "mean": 215.37419768934532,
+          "median": 160.0,
+          "std": 186.5812464223716,
+          "percentile_25": 91.0,
+          "percentile_75": 275.0,
+          "percentile_90": 435.29999999999995,
+          "percentile_95": 585.2999999999997,
+          "percentile_99": 985.0300000000013
+        },
+        "total_tokens": 335553
+      }
+    },
+    "test": {
+      "truncation": {
+        "128": {
+          "truncated_count": 1207,
+          "truncation_rate": 66.98113207547169,
+          "avg_lost_truncated": 175.5575807787904,
+          "total_percent_lost": 51.235812696155946
+        },
+        "256": {
+          "truncated_count": 601,
+          "truncation_rate": 33.35183129855716,
+          "avg_lost_truncated": 166.59068219633943,
+          "total_percent_lost": 24.208726854202634
+        },
+        "384": {
+          "truncated_count": 283,
+          "truncation_rate": 15.704772475027747,
+          "avg_lost_truncated": 160.96113074204948,
+          "total_percent_lost": 11.014232035862989
+        },
+        "512": {
+          "truncated_count": 124,
+          "truncation_rate": 6.8812430632630415,
+          "avg_lost_truncated": 163.3790322580645,
+          "total_percent_lost": 4.898518765686431
+        }
+      },
+      "last_job_analysis": {
+        "total": 1802,
+        "matches": 41,
+        "match_rate": 2.2752497225305217
+      },
+      "statistics": {
+        "num_pairs": 1802,
+        "doc_length_stats": {
+          "min": 14,
+          "max": 1540,
+          "mean": 229.50832408435073,
+          "median": 185.0,
+          "std": 175.02657856694069,
+          "percentile_25": 104.0,
+          "percentile_75": 305.0,
+          "percentile_90": 455.9000000000001,
+          "percentile_95": 559.9499999999998,
+          "percentile_99": 825.99
+        },
+        "total_tokens": 413574
+      }
+    }
+  }
+}
